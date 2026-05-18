@@ -10,6 +10,7 @@ import authRoutes from "./modules/auth/auth.routes.js";
 import itemCategoryRoutes from "./modules/masters/itemCategory/itemCategory.routes.js";
 import itemRoutes from "./modules/masters/item/item.routes.js";
 import customerRoutes from "./modules/masters/customer/customer.routes.js";
+import uomRoutes from "./modules/masters/uom/uom.routes.js";
 
 const app = express();
 app.use(express.json()); // ← this line MUST exist in app.js
@@ -25,6 +26,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/masters/item-categories", itemCategoryRoutes);
 app.use("/api/masters/items", itemRoutes);
 app.use("/api/masters/customers", customerRoutes);
+app.use("/api/masters/uom", uomRoutes);
 
 // Global error handler (must be last)
 app.use(errorHandler);

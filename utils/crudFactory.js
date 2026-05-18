@@ -53,12 +53,17 @@ const crudFactory = (Model) => ({
     res.json(new ApiResponse(200, doc, "Updated successfully"));
   }),
 
+  //   remove: asyncHandler(async (req, res) => {
+  //     const doc = await Model.findOneAndUpdate(
+  //       { _id: req.params.id, companyId: req.companyId },
+  //       { isActive: false },
+  //       { new: true }
+  //     );
   remove: asyncHandler(async (req, res) => {
-    const doc = await Model.findOneAndUpdate(
-      { _id: req.params.id, companyId: req.companyId },
-      { isActive: false },
-      { new: true }
-    );
+    const doc = await Model.findOneAndDelete({
+      _id: req.params.id,
+      companyId: req.companyId,
+    });
     if (!doc) throw new ApiError(404, "Record not found");
     res.json(new ApiResponse(200, null, "Deleted successfully"));
   }),
