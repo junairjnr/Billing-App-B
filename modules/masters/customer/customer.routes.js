@@ -5,7 +5,11 @@ import customerModel from "./customer.model.js";
 
 const router = express.Router();
 
-const ctrl = crudFactory(customerModel);
+// const ctrl = crudFactory(customerModel);
+const ctrl = crudFactory(customerModel, {
+  selectFields: "name email phone gstin customerType creditLimit address isActive createdAt",
+  hasTextIndex: true,
+});
 
 router.use(protect);
 router.get("/", ctrl.getAll);

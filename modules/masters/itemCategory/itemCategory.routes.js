@@ -7,9 +7,16 @@ import crudFactory from "../../../utils/crudFactory.js";
 
 const router = express.Router();
 
-const ctrl = crudFactory(itemCategoryModel);
+// const ctrl = crudFactory(itemCategoryModel);
+
+const ctrl = crudFactory(itemCategoryModel, {
+  selectFields: "name description isActive createdAt",
+  hasTextIndex: true,
+});
 
 router.use(protect);
+
+
 router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
 router.post("/add", ctrl.create);
