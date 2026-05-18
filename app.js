@@ -15,9 +15,39 @@ import uomRoutes from "./modules/masters/uom/uom.routes.js";
 const app = express();
 app.use(express.json()); // ← this line MUST exist in app.js
 
+// app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+
+// cors configuration for development (allow all origins)
+
+// const allowedOrigins = [
+//   "http://localhost:3000",
+//   "https://billing-app-f.vercel.app",
+// ];
+const allowedOrigins = [
+  "http://localhost:3000",
+  process.env.CLIENT_URL, // ← from Render env var
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked: ${origin}`));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// app.options("*", cors());
+
 // Middlewares
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(express.json());
 app.use(morgan("dev"));
 
