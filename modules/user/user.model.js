@@ -9,6 +9,12 @@ const userSchema = new mongoose.Schema(
       ref: "Company",
       required: true,
     },
+
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      required: true,
+    },
     name: { type: String, required: true, trim: true },
     email: {
       type: String,
@@ -37,7 +43,8 @@ const userSchema = new mongoose.Schema(
 
 // ── Indexes ───────────────────────────────────────────────────
 // userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ companyId: 1, role: 1 });
+userSchema.index({ companyId: 1, branchId: 1, role: 1 });
+userSchema.index({ companyId: 1, branchId: 1, isActive: 1 });
 userSchema.index({ companyId: 1, isActive: 1 });
 userSchema.index({ inviteToken: 1 }, { sparse: true });
 

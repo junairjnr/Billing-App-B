@@ -73,6 +73,8 @@ import itemCategoryRoutes from "./modules/masters/itemCategory/itemCategory.rout
 import itemRoutes         from "./modules/masters/item/item.routes.js";
 import customerRoutes     from "./modules/masters/customer/customer.routes.js";
 import uomRoutes          from "./modules/masters/uom/uom.routes.js";
+import branchRoutes from "./modules/branch/branch.routes.js";
+import fyRoutes from "./modules/financialYear/financialYear.routes.js";
 
 const app = express();
 
@@ -115,6 +117,8 @@ app.use("/api/masters/item-categories", itemCategoryRoutes);
 app.use("/api/masters/items",           itemRoutes);
 app.use("/api/masters/customers",       customerRoutes);
 app.use("/api/masters/uom",             uomRoutes);
+app.use("/api/branches", branchRoutes);
+app.use("/api/financial-years", fyRoutes);
 
 // ── 6. Error handler — must be last ───────────────────────────
 app.use(errorHandler);

@@ -59,6 +59,10 @@
 //   //       { isActive: false },
 //   //       { new: true }
 //   //     );
+// const doc = await Model.findOneAndDelete({
+//     _id: req.params.id,
+//     companyId: req.companyId,
+//   }).lean();
 //   remove: asyncHandler(async (req, res) => {
 //     const doc = await Model.findOneAndDelete({
 //       _id: req.params.id,
@@ -71,10 +75,9 @@
 
 // export default crudFactory;
 
-
 import asyncHandler from "./asyncHandler.js";
-import ApiResponse  from "./ApiResponse.js";
-import ApiError     from "./ApiError.js";
+import ApiResponse from "./ApiResponse.js";
+import ApiError from "./ApiError.js";
 
 const crudFactory = (Model, options = {}) => {
   const {
@@ -87,7 +90,9 @@ const crudFactory = (Model, options = {}) => {
   const applyPopulate = (query) => {
     if (!populateOpts) return query;
     if (Array.isArray(populateOpts)) {
-      populateOpts.forEach((opt) => { query = query.populate(opt); });
+      populateOpts.forEach((opt) => {
+        query = query.populate(opt);
+      });
     } else {
       query = query.populate(populateOpts);
     }
@@ -95,16 +100,15 @@ const crudFactory = (Model, options = {}) => {
   };
 
   return {
-
     // ── GET ALL ───────────────────────────────────────────────
     getAll: asyncHandler(async (req, res) => {
       const {
-        page     = 1,
-        limit    = 20,
-        search   = "",
+        page = 1,
+        limit = 20,
+        search = "",
         isActive,
-        sortBy   = "createdAt",
-        order    = "desc",
+        sortBy = "createdAt",
+        order = "desc",
       } = req.query;
 
       const filter = { companyId: req.companyId };
@@ -119,7 +123,7 @@ const crudFactory = (Model, options = {}) => {
         }
       }
 
-      const skip      = (Number(page) - 1) * Number(limit);
+      const skip = (Number(page) - 1) * Number(limit);
       const sortOrder = order === "asc" ? 1 : -1;
 
       let query = Model.find(filter)
@@ -136,20 +140,22 @@ const crudFactory = (Model, options = {}) => {
         Model.countDocuments(filter),
       ]);
 
-      res.json(new ApiResponse(200, {
-        data,
-        total,
-        page:       Number(page),
-        limit:      Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
-        hasNext:    Number(page) < Math.ceil(total / Number(limit)),
-      }));
+      res.json(
+        new ApiResponse(200, {
+          data,
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / Number(limit)),
+          hasNext: Number(page) < Math.ceil(total / Number(limit)),
+        })
+      );
     }),
 
     // ── GET ONE ───────────────────────────────────────────────
     getOne: asyncHandler(async (req, res) => {
       let query = Model.findOne({
-        _id:       req.params.id,
+        _id: req.params.id,
         companyId: req.companyId,
       })
         .select(selectFields)
@@ -189,11 +195,15 @@ const crudFactory = (Model, options = {}) => {
 
     // ── SOFT DELETE ───────────────────────────────────────────
     remove: asyncHandler(async (req, res) => {
-      const doc = await Model.findOneAndUpdate(
-        { _id: req.params.id, companyId: req.companyId },
-        { $set: { isActive: false } },
-        { new: true }
-      ).lean();
+      // const doc = await Model.findOneAndUpdate(
+      //   { _id: req.params.id, companyId: req.companyId },
+      //   { $set: { isActive: false } },
+      //   { new: true }
+      // ).lean();
+      const doc = await Model.findOneAndDelete({
+        _id: req.params.id,
+        companyId: req.companyId,
+      }).lean();
 
       if (!doc) throw new ApiError(404, "Record not found");
       res.json(new ApiResponse(200, null, "Deleted successfully"));
