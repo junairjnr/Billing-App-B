@@ -75,6 +75,7 @@ import customerRoutes     from "./modules/masters/customer/customer.routes.js";
 import uomRoutes          from "./modules/masters/uom/uom.routes.js";
 import branchRoutes from "./modules/branch/branch.routes.js";
 import fyRoutes from "./modules/financialYear/financialYear.routes.js";
+import userRoutes from "./modules/user/user.routes.js";
 
 const app = express();
 
@@ -119,6 +120,7 @@ app.use("/api/masters/customers",       customerRoutes);
 app.use("/api/masters/uom",             uomRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/financial-years", fyRoutes);
+app.use("/api/users", userRoutes);
 
 // ── 6. Error handler — must be last ───────────────────────────
 app.use(errorHandler);
