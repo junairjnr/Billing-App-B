@@ -76,6 +76,7 @@ import uomRoutes          from "./modules/masters/uom/uom.routes.js";
 import branchRoutes from "./modules/branch/branch.routes.js";
 import fyRoutes from "./modules/financialYear/financialYear.routes.js";
 import userRoutes from "./modules/user/user.routes.js";
+import companyRoutes from "./modules/company/company.routes.js";
 
 const app = express();
 
@@ -121,6 +122,7 @@ app.use("/api/masters/uom",             uomRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/financial-years", fyRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/companies", companyRoutes);
 
 // ── 6. Error handler — must be last ───────────────────────────
 app.use(errorHandler);

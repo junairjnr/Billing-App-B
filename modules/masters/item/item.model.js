@@ -23,6 +23,7 @@ const itemSchema = new mongoose.Schema(
     },
     price: { type: Number, required: true, min: 0 },
     taxPercent: { type: Number, default: 0 }, // GST %
+    hsnCode: { type: String, trim: true }, // for GST
     description: String,
     isActive: { type: Boolean, default: true },
   },

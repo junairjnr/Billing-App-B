@@ -7,7 +7,7 @@ const router = express.Router();
 
 // const ctrl = crudFactory(customerModel);
 const ctrl = crudFactory(customerModel, {
-  selectFields: "name email phone gstin customerType creditLimit address isActive createdAt",
+  selectFields: "name email phone gstin customerType creditLimit address isActive createdAt type",
   hasTextIndex: true,
 });
 
