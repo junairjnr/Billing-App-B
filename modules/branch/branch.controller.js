@@ -8,7 +8,7 @@ const getAll = asyncHandler(async (req, res) => {
 });
 
 const getOne = asyncHandler(async (req, res) => {
-  const data = await branchService.getOne(req.companyId, req.params.id);
+  const data = await branchServices.getOne(req.companyId, req.params.id);
   res.json(new ApiResponse(200, data));
 });
 
