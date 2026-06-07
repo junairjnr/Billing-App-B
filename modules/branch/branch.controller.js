@@ -3,7 +3,7 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import branchServices from "./branch.services.js";
 
 const getAll = asyncHandler(async (req, res) => {
-  const data = await branchService.getAll(req.companyId);
+  const data = await branchServices.getAll(req.companyId);
   res.json(new ApiResponse(200, data));
 });
 
