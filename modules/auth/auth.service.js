@@ -8,6 +8,7 @@ import {
   createFinancialYear,
   getCurrentFYStartYear,
 } from "../financialYear/financialYear.services.js";
+import financialYearModel from "../financialYear/financialYear.model.js";
 
 const generateToken = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, {
@@ -115,6 +116,13 @@ const login = async ({ email, password }) => {
 
   if (!user.isActive) throw new ApiError(403, "Account is deactivated");
 
+  const activeFY = await financialYearModel
+    .findOne({
+      companyId: user.companyId,
+      isActive: true,
+    })
+    .select("label startDate endDate isActive isClosed");
+
   const token = generateToken({
     id: user._id,
     companyId: user.companyId,
@@ -130,6 +138,7 @@ const login = async ({ email, password }) => {
       role: user.role,
       companyId: user.companyId,
       branchId: user.branchId._id,
+      activeFY: activeFY._id,
     },
   };
 };
