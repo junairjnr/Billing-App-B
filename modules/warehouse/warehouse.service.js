@@ -10,13 +10,54 @@ export const createWarehouse = async (companyId, branchId, payload) => {
   return Warehouse.create({ ...payload, companyId, branchId });
 };
 
-export const getAll = async (companyId, branchId) => {
-  const filter = { companyId, isActive: true };
+// export const getAll = async (companyId, branchId) => {
+//   const filter = { companyId, isActive: true };
+//   if (branchId) filter.branchId = branchId;
+//   return Warehouse.find(filter)
+//     .populate("branchId", "name code")
+//     .sort({ isDefault: -1, name: 1 })
+//     .lean();
+// };
+// service
+export const getAll = async (companyId, queryParams) => {
+  const {
+    page = 1,
+    limit = 20,
+    search,
+    branchId,
+  } = queryParams;
+
+  const filter = {
+    companyId,
+    isActive: true,
+  };
+
   if (branchId) filter.branchId = branchId;
-  return Warehouse.find(filter)
-    .populate("branchId", "name code")
-    .sort({ isDefault: -1, name: 1 })
-    .lean();
+
+  if (search) {
+    filter.name = { $regex: search, $options: "i" };
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [data, total] = await Promise.all([
+    Warehouse.find(filter)
+      .populate("branchId", "name code")
+      .sort({ isDefault: -1, name: 1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
+    Warehouse.countDocuments(filter),
+  ]);
+
+  return {
+    data,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    hasNext: page < Math.ceil(total / limit),
+  };
 };
 
 export const getOne = async (companyId, warehouseId) => {
