@@ -1,11 +1,14 @@
 import asyncHandler from "../../utils/asyncHandler.js";
-import ApiResponse  from "../../utils/ApiResponse.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 import * as warehouseService from "./warehouse.service.js";
 import { getWarehouseStock, getStockLedger } from "../stock/stock.services.js";
 
 const getAll = asyncHandler(async (req, res) => {
-  const branchId = req.query.branchId || req.branchId;
-  const data = await warehouseService.getAll(req.companyId, branchId);
+  const { branchId, ...rest } = req.query;
+  const data = await warehouseService.getAll(req.companyId, {
+    branchId: branchId || req.branchId,
+    ...rest,
+  });
   res.json(new ApiResponse(200, data));
 });
 
@@ -46,8 +49,8 @@ const deleteWarehouse = asyncHandler(async (req, res) => {
 // Get stock in a warehouse
 const getStock = asyncHandler(async (req, res) => {
   const data = await getWarehouseStock({
-    companyId:       req.companyId,
-    warehouseId:     req.params.id,
+    companyId: req.companyId,
+    warehouseId: req.params.id,
     financialYearId: req.fyId,
   });
   res.json(new ApiResponse(200, data));
@@ -57,14 +60,23 @@ const getStock = asyncHandler(async (req, res) => {
 const getLedger = asyncHandler(async (req, res) => {
   const { itemId, page, limit } = req.query;
   const data = await getStockLedger({
-    companyId:       req.companyId,
-    warehouseId:     req.params.id,
+    companyId: req.companyId,
+    warehouseId: req.params.id,
     financialYearId: req.fyId,
     itemId,
-    page:  Number(page)  || 1,
+    page: Number(page) || 1,
     limit: Number(limit) || 50,
   });
   res.json(new ApiResponse(200, data));
 });
 
-export default { getAll, getOne, create, update, deactivate, getStock, getLedger , deleteWarehouse };
+export default {
+  getAll,
+  getOne,
+  create,
+  update,
+  deactivate,
+  getStock,
+  getLedger,
+  deleteWarehouse,
+};

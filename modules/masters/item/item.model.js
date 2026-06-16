@@ -23,13 +23,19 @@ const itemSchema = new mongoose.Schema(
     },
     price: { type: Number, required: true, min: 0 },
     taxPercent: { type: Number, default: 0 }, // GST %
-    hsnCode: { type: String, trim: true }, // for GST
+    hsnCode: { type: String, trim: true }, // for GST reporting
     description: String,
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-itemSchema.index({ companyId: 1, code: 1 }, { unique: true, sparse: true });
+// ── Indexes ───────────────────────────────────────────────────
+itemSchema.index({ companyId: 1, isActive: 1 });
+itemSchema.index({ companyId: 1, categoryId: 1, isActive: 1 });
+itemSchema.index({ companyId: 1, uomId: 1 });
+itemSchema.index({ companyId: 1, code: 1 },  { unique: true, sparse: true });
+itemSchema.index({ companyId: 1, hsnCode: 1 });  
+itemSchema.index({ companyId: 1, name: "text", description: "text" });
 
 export default mongoose.model("Item", itemSchema);

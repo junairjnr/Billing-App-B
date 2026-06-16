@@ -8,7 +8,7 @@ const router = express.Router();
 // const ctrl = crudFactory(itemModel);
 const ctrl = crudFactory(itemModel, {
   selectFields:
-    "name code uomId categoryId price taxPercent description isActive createdAt",
+    "name code uomId categoryId hsnCode price taxPercent description isActive createdAt",
   hasTextIndex: true,
   populateOpts: [
     { path: "categoryId", select: "name" },

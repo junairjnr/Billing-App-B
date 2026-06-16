@@ -1,6 +1,6 @@
-import mongoose  from "mongoose";
+import mongoose from "mongoose";
 import Warehouse from "./warehouse.model.js";
-import ApiError  from "../../utils/ApiError.js";
+import ApiError from "../../utils/ApiError.js";
 
 export const createWarehouse = async (companyId, branchId, payload) => {
   // Only one default per branch
@@ -19,19 +19,16 @@ export const createWarehouse = async (companyId, branchId, payload) => {
 //     .lean();
 // };
 // service
-export const getAll = async (companyId, queryParams) => {
-  const {
-    page = 1,
-    limit = 20,
-    search,
-    branchId,
-  } = queryParams;
+export const getAll = async (companyId, queryParams = {}) => {
+  const { page = 1, limit = 20, search, branchId } = queryParams;
 
+  console.log("Fetching warehouses with params:", { companyId, queryParams, branchId });
   const filter = {
     companyId,
     isActive: true,
   };
-
+  if (!branchId)
+    console.log("No branchId provided, fetching warehouses for entire company");
   if (branchId) filter.branchId = branchId;
 
   if (search) {
@@ -49,6 +46,7 @@ export const getAll = async (companyId, queryParams) => {
       .lean(),
     Warehouse.countDocuments(filter),
   ]);
+  console.log("Total warehouses:", total, data);
 
   return {
     data,
@@ -74,10 +72,11 @@ export const updateWarehouse = async (companyId, warehouseId, payload) => {
 
   if (payload.isDefault) {
     const wh = await Warehouse.findOne({ _id: warehouseId, companyId });
-    if (wh) await Warehouse.updateMany(
-      { companyId, branchId: wh.branchId },
-      { isDefault: false }
-    );
+    if (wh)
+      await Warehouse.updateMany(
+        { companyId, branchId: wh.branchId },
+        { isDefault: false }
+      );
   }
 
   const wh = await Warehouse.findOneAndUpdate(
@@ -92,8 +91,9 @@ export const updateWarehouse = async (companyId, warehouseId, payload) => {
 
 export const deactivateWarehouse = async (companyId, warehouseId) => {
   const wh = await Warehouse.findOne({ _id: warehouseId, companyId });
-  if (!wh)          throw new ApiError(404, "Warehouse not found");
-  if (wh.isDefault) throw new ApiError(400, "Cannot deactivate default warehouse");
+  if (!wh) throw new ApiError(404, "Warehouse not found");
+  if (wh.isDefault)
+    throw new ApiError(400, "Cannot deactivate default warehouse");
 
   wh.isActive = false;
   await wh.save();
