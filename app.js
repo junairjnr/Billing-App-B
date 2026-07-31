@@ -90,7 +90,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:3002",
-  "https://billing-app-f.vercel.app/",
+  "https://billing-app-f.vercel.app",
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
