@@ -134,5 +134,28 @@ customerSchema.index({
   phone: "text",
   email: "text",
 });
+customerSchema.index({ companyId: 1, name: 1 }, { unique: true });
+
+// Prevent duplicate phone numbers within a company
+customerSchema.index(
+  { companyId: 1, phone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      phone: { $exists: true, $ne: "" },
+    },
+  }
+);
+
+// Prevent duplicate emails within a company
+customerSchema.index(
+  { companyId: 1, email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      email: { $exists: true, $ne: "" },
+    },
+  }
+);
 
 export default mongoose.model("Customer", customerSchema);
