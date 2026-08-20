@@ -1,4 +1,5 @@
 import companyModel from "./company.model.js";
+import ApiError from "../../utils/ApiError.js";
 
 const getAllCompanies = async () => {
   const companies = await companyModel.find();

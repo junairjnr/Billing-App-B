@@ -1,13 +1,13 @@
 import express from "express";
-import companyService from "./company.service.js";
+import ctrl from "./company.controller.js";
 import protect from "../../middlewares/authHandler.js";
 
 const router = express.Router();
 
 router.use(protect);
 
-router.get("/:id", companyService.getCompanyDetails);
-router.get("/all", companyService.getAllCompanies);
-router.put("/:id", companyService.updateCompanyDetails);
+router.get("/all", ctrl.getAllCompanies);
+router.get("/:id", ctrl.getCompanyDetails);
+router.put("/:id", ctrl.updateCompanyDetails);
 
 export default router;

@@ -12,5 +12,8 @@ router.get("/stock", ctrl.stockReport);
 router.get("/purchase", ctrl.purchaseReport);
 router.get("/sales", ctrl.salesReport);
 router.get("/ledger", ctrl.ledgerReport);
+router.get("/shop",             ctrl.shopReport);         // ← replaces /ledger
+router.get("/purchase-history", ctrl.purchaseHistory);
+router.get("/sales-history",    ctrl.salesHistory);
 
 export default router;

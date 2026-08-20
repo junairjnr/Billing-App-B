@@ -287,10 +287,26 @@ export const createPurchaseInvoice = async ({
     if (dbItems.length !== itemIds.length)
       throw new ApiError(400, "One or more items not found");
 
-    // 3. Generate invoice number
+    // 3. Check for duplicate vendorInvoiceNo (within same company + vendor + financial year)
+    if (vendorInvoiceNo && vendorInvoiceNo.trim() !== "") {
+      const duplicate = await PurchaseInvoice.findOne({
+        companyId,
+        financialYearId,
+        vendorId,
+        vendorInvoiceNo: vendorInvoiceNo.trim(),
+      }).lean();
+      if (duplicate) {
+        throw new ApiError(
+          409,
+          `Vendor invoice number "${vendorInvoiceNo.trim()}" already exists for this vendor in the current financial year (Ref: ${duplicate.invoiceNo})`
+        );
+      }
+    }
+
+    // 4. Generate invoice number
     const invoiceNo = await generatePurchaseInvoiceNo(companyId, financialYearId);
 
-    // 4. Calculate amounts
+    // 5. Calculate amounts
     let netAmount = 0, totalSGST = 0, totalCGST = 0;
 
     const processedItems = items.map((row, index) => {
@@ -347,6 +363,9 @@ export const createPurchaseInvoice = async ({
       totalSGST: Number(totalSGST.toFixed(2)),
       totalCGST: Number(totalCGST.toFixed(2)),
       totalTax, total, roundOff, grandTotal,
+      paidAmount: 0,
+      balanceAmount: grandTotal,
+      paymentStatus: "pending",
       status: "confirmed", notes,
     }], { session });
 

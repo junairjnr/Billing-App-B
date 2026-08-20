@@ -18,6 +18,7 @@ const generateToken = (payload) =>
 // Register = Create Company + Admin User (atomic)
 const register = async ({
   companyName,
+  companyCode,
   companyEmail,
   name,
   email,
@@ -39,7 +40,7 @@ const register = async ({
     if (existingUser) throw new ApiError(409, "Email already registered");
 
     const [company] = await Company.create(
-      [{ name: companyName, email: companyEmail }],
+      [{ name: companyName, code: companyCode?.toUpperCase(), email: companyEmail }],
       { session }
     );
 

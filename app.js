@@ -82,7 +82,12 @@ import warehouseRoutes from "./modules/warehouse/warehouse.routes.js";
 import purchaseRoutes from "./modules/purchase/purchaseInvoice/purchaseInvoice.routes.js";
 import salesInvoiceRoutes from "./modules/sales/salesInvoice/salesInvoice.routes.js";
 import reportRoutes from "./modules/reports/report.routes.js";
-
+import bankAccountRoutes from "./modules/masters/bank/bank.routes.js";
+import receiptRoutes from "./modules/receipt-payment/receipt.routes.js";
+import vendorPaymentRoutes from "./modules/receipt-payment/vendorPayment.routes.js";
+import * as rpCtrl from "./modules/receipt-payment/receiptPayment.controller.js";
+import protect from "./middlewares/authHandler.js";
+import fyScope from "./middlewares/fyScope.js";
 const app = express();
 
 // ── 1. Allowed origins ────────────────────────────────────────
@@ -135,6 +140,12 @@ app.use("/api/warehouses", warehouseRoutes);
 app.use("/api/purchase", purchaseRoutes);
 app.use("/api/sales", salesInvoiceRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/bank-accounts", bankAccountRoutes);
+app.use("/api/receipts", receiptRoutes);
+app.use("/api/vendor-payments", vendorPaymentRoutes);
+
+app.get("/api/customers/:id/outstanding", protect, fyScope, rpCtrl.customerOutstanding);
+app.get("/api/vendors/:id/outstanding", protect, fyScope, rpCtrl.vendorOutstanding);
 
 // ── 6. Error handler — must be last ───────────────────────────
 app.use(errorHandler);

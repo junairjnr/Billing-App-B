@@ -2,6 +2,8 @@ import express from "express";
 import protect from "../../../middlewares/authHandler.js";
 import crudFactory from "../../../utils/crudFactory.js";
 import itemModel from "./item.model.js";
+import asyncHandler from "../../../utils/asyncHandler.js";
+import ApiResponse from "../../../utils/ApiResponse.js";
 
 const router = express.Router();
 
@@ -17,6 +19,30 @@ const ctrl = crudFactory(itemModel, {
 });
 
 router.use(protect);
+
+router.get(
+  "/search",
+  protect,
+  asyncHandler(async (req, res) => {
+    const { q = "" } = req.query;
+
+    const filter = { companyId: req.companyId, isActive: true };
+    if (q) {
+      filter.$or = [
+        { name: { $regex: q, $options: "i" } },
+        { code: { $regex: q, $options: "i" } },
+      ];
+    }
+
+    const data = await itemModel.find(filter)
+      .select("name code hsn price taxPercent uomId")
+      .populate("uomId", "name shortCode")
+      .limit(10)
+      .lean();
+
+    res.json(new ApiResponse(200, data));
+  })
+);
 
 router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
