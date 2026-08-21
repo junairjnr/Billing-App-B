@@ -330,6 +330,8 @@ const salesInvoiceSchema = new mongoose.Schema(
     roundOff: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
 
+    returnedAmount: { type: Number, default: 0 },
+
     // ── Payment tracking ── ADD THESE ────────────────────
     paidAmount: { type: Number, default: 0 },
     balanceAmount: { type: Number, default: 0 },

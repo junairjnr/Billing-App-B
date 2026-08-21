@@ -1,0 +1,88 @@
+export const MANAGED_ROLES = ["admin", "manager", "staff"];
+
+export const VIEW_PERMISSIONS = [
+  { key: "dashboard", label: "Dashboard", group: "Main" },
+  { key: "master.product", label: "Product", group: "Masters" },
+  { key: "master.customer", label: "Customer", group: "Masters" },
+  { key: "master.category", label: "Category", group: "Masters" },
+  { key: "master.uom", label: "UOM", group: "Masters" },
+  { key: "master.priceLevel", label: "Price Level", group: "Masters" },
+  { key: "master.branch", label: "Branch", group: "Masters" },
+  { key: "master.financialYear", label: "Financial Year", group: "Masters" },
+  { key: "master.warehouse", label: "Warehouse", group: "Masters" },
+  { key: "master.bank", label: "Bank Account", group: "Masters" },
+  { key: "sales.invoice", label: "Sales Invoice", group: "Sales" },
+  { key: "sales.return", label: "Sales Return", group: "Sales" },
+  { key: "purchase.invoice", label: "Purchase Invoice", group: "Purchase" },
+  { key: "purchase.return", label: "Purchase Return", group: "Purchase" },
+  { key: "receipt.voucher", label: "Receipt Voucher", group: "Receipt / Payment" },
+  { key: "payment.voucher", label: "Payment Voucher", group: "Receipt / Payment" },
+  { key: "reports.stock", label: "Stock Report", group: "Reports" },
+  { key: "reports.sales", label: "Sales Report", group: "Reports" },
+  { key: "reports.purchase", label: "Purchase Report", group: "Reports" },
+  { key: "reports.shop", label: "Shop Report", group: "Reports" },
+  { key: "reports.purchaseHistory", label: "Purchase History", group: "Reports" },
+  { key: "reports.salesHistory", label: "Sales History", group: "Reports" },
+];
+
+export const ALL_VIEW_KEYS = VIEW_PERMISSIONS.map((p) => p.key);
+
+const allTrue = () =>
+  Object.fromEntries(ALL_VIEW_KEYS.map((key) => [key, true]));
+
+export const DEFAULT_ROLE_PERMISSIONS = {
+  admin: allTrue(),
+  manager: {
+    dashboard: true,
+    "master.product": true,
+    "master.customer": true,
+    "master.category": true,
+    "master.uom": true,
+    "master.priceLevel": true,
+    "master.warehouse": true,
+    "master.bank": false,
+    "master.branch": false,
+    "master.financialYear": false,
+    "sales.invoice": true,
+    "sales.return": true,
+    "purchase.invoice": true,
+    "purchase.return": true,
+    "receipt.voucher": true,
+    "payment.voucher": true,
+    "reports.stock": true,
+    "reports.sales": true,
+    "reports.purchase": true,
+    "reports.shop": true,
+    "reports.purchaseHistory": true,
+    "reports.salesHistory": true,
+  },
+  staff: {
+    dashboard: true,
+    "master.product": true,
+    "master.customer": true,
+    "master.category": false,
+    "master.uom": false,
+    "master.priceLevel": false,
+    "master.warehouse": false,
+    "master.bank": false,
+    "master.branch": false,
+    "master.financialYear": false,
+    "sales.invoice": true,
+    "sales.return": false,
+    "purchase.invoice": true,
+    "purchase.return": false,
+    "receipt.voucher": false,
+    "payment.voucher": false,
+    "reports.stock": true,
+    "reports.sales": false,
+    "reports.purchase": false,
+    "reports.shop": false,
+    "reports.purchaseHistory": false,
+    "reports.salesHistory": false,
+  },
+};
+
+export const SUPER_ADMIN_SETTINGS = {
+  "settings.company": true,
+  "settings.permissions": true,
+};

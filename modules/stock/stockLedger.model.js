@@ -57,7 +57,15 @@ const stockLedgerSchema = new mongoose.Schema(
     // Reference to source document
     referenceType: {
       type: String,
-      enum: ["PurchaseInvoice", "SalesInvoice", "StockTransfer", "Adjustment", "Opening"],
+      enum: [
+        "PurchaseInvoice",
+        "PurchaseReturn",
+        "SalesInvoice",
+        "SalesReturn",
+        "StockTransfer",
+        "Adjustment",
+        "Opening",
+      ],
     },
     referenceId: {
       type: mongoose.Schema.Types.ObjectId,

@@ -79,6 +79,8 @@ const purchaseInvoiceSchema = new mongoose.Schema(
     roundOff: { type: Number, default: 0 }, // Math.round(total) - total
     grandTotal: { type: Number, default: 0 },
 
+    returnedAmount: { type: Number, default: 0 },
+
     paidAmount: { type: Number, default: 0 },
     balanceAmount: { type: Number, default: 0 },
     paymentStatus: {

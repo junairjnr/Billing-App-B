@@ -5,6 +5,7 @@ import { ledgerReport } from "./stockLedgerReport/sLedgerReport.controller.js";
 import { salesHistory } from "./salesHistory/salesHistory.controller.js";
 import { purchaseHistory } from "./purchaseHistory/purchaseHistory.controller.js";
 import { shopReport } from "./shopReport/shopReport.controller.js";
+import { dashboardReport } from "./dashboardReport/dashboardReport.controller.js";
 
 export default {
   stockReport,
@@ -13,5 +14,6 @@ export default {
   ledgerReport,
   salesHistory,
   purchaseHistory,
-  shopReport
+  shopReport,
+  dashboardReport,
 };

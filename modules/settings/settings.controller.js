@@ -1,0 +1,35 @@
+import asyncHandler from "../../utils/asyncHandler.js";
+import ApiResponse from "../../utils/ApiResponse.js";
+import * as settingsService from "./settings.service.js";
+
+export const getMyPermissions = asyncHandler(async (req, res) => {
+  const permissions = await settingsService.getEffectivePermissions(
+    req.companyId,
+    req.user.role
+  );
+  res.json(new ApiResponse(200, permissions));
+});
+
+export const getRolePermissions = asyncHandler(async (req, res) => {
+  const data = await settingsService.getAllRolePermissions(req.companyId);
+  res.json(new ApiResponse(200, data));
+});
+
+export const updateRolePermissions = asyncHandler(async (req, res) => {
+  const data = await settingsService.updateRolePermissions(
+    req.companyId,
+    req.params.role,
+    req.body.views
+  );
+  res.json(new ApiResponse(200, data, "Role permissions updated"));
+});
+
+export const getCompanySettings = asyncHandler(async (req, res) => {
+  const data = await settingsService.getCompanySettings(req.companyId);
+  res.json(new ApiResponse(200, data));
+});
+
+export const updateCompanySettings = asyncHandler(async (req, res) => {
+  const data = await settingsService.updateCompanySettings(req.companyId, req.body);
+  res.json(new ApiResponse(200, data, "Company updated"));
+});

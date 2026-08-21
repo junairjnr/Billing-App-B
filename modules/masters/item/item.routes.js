@@ -35,7 +35,7 @@ router.get(
     }
 
     const data = await itemModel.find(filter)
-      .select("name code hsn price taxPercent uomId")
+      .select("name code hsnCode price taxPercent uomId")
       .populate("uomId", "name shortCode")
       .limit(10)
       .lean();

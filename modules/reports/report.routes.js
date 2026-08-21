@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(protect);
 router.use(fyScope);
 
+router.get("/dashboard", ctrl.dashboardReport);
 router.get("/stock", ctrl.stockReport);
 router.get("/purchase", ctrl.purchaseReport);
 router.get("/sales", ctrl.salesReport);

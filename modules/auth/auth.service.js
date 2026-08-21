@@ -9,6 +9,7 @@ import {
   getCurrentFYStartYear,
 } from "../financialYear/financialYear.services.js";
 import financialYearModel from "../financialYear/financialYear.model.js";
+import { seedDefaultPermissions, getEffectivePermissions } from "../settings/settings.service.js";
 
 const generateToken = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, {
@@ -66,13 +67,19 @@ const register = async ({
           name,
           email,
           password,
-          role: "admin",
+          role: "super_admin",
         },
       ],
       { session }
     );
 
     await session.commitTransaction();
+
+    try {
+      await seedDefaultPermissions(company._id);
+    } catch (permErr) {
+      console.warn("Default permissions seed warning:", permErr.message);
+    }
 
     try {
       const fyStartYear = getCurrentFYStartYear();
@@ -89,6 +96,8 @@ const register = async ({
       role: user.role,
     });
 
+    const permissions = await getEffectivePermissions(company._id, user.role);
+
     return {
       token,
       user: {
@@ -96,6 +105,9 @@ const register = async ({
         name: user.name,
         email: user.email,
         role: user.role,
+        companyId: company._id,
+        branchId: branch._id,
+        permissions,
       },
       company,
       branch,
@@ -130,6 +142,9 @@ const login = async ({ email, password }) => {
     branchId: user.branchId._id,
     role: user.role,
   });
+
+  const permissions = await getEffectivePermissions(user.companyId, user.role);
+
   return {
     token,
     user: {
@@ -139,7 +154,8 @@ const login = async ({ email, password }) => {
       role: user.role,
       companyId: user.companyId,
       branchId: user.branchId._id,
-      activeFY: activeFY._id,
+      activeFY: activeFY?._id,
+      permissions,
     },
   };
 };
