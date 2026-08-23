@@ -34,8 +34,15 @@ const itemSchema = new mongoose.Schema(
 itemSchema.index({ companyId: 1, isActive: 1 });
 itemSchema.index({ companyId: 1, categoryId: 1, isActive: 1 });
 itemSchema.index({ companyId: 1, uomId: 1 });
-itemSchema.index({ companyId: 1, code: 1 },  { unique: true, sparse: true });
-itemSchema.index({ companyId: 1, hsnCode: 1 });  
+itemSchema.index({ companyId: 1, code: 1 },  { sparse: true });
+itemSchema.index({ companyId: 1, hsnCode: 1 });
+itemSchema.index(
+  { companyId: 1, name: 1 },
+  {
+    unique: true,
+    collation: { locale: "en", strength: 2 },
+  }
+);
 itemSchema.index({ companyId: 1, name: "text", description: "text" });
 
 export default mongoose.model("Item", itemSchema);

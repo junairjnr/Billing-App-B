@@ -98,7 +98,7 @@ const customerSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     gstin: { type: String, trim: true },
 
-    // ── Only relevant for sales type ──────────────────────────
+    // ── Retail / wholesale — applies to sales and purchase parties ─
     customerType: {
       type: String,
       enum: ["retail", "wholesale"],
@@ -134,27 +134,11 @@ customerSchema.index({
   phone: "text",
   email: "text",
 });
-customerSchema.index({ companyId: 1, name: 1 }, { unique: true });
-
-// Prevent duplicate phone numbers within a company
 customerSchema.index(
-  { companyId: 1, phone: 1 },
+  { companyId: 1, name: 1 },
   {
     unique: true,
-    partialFilterExpression: {
-      phone: { $exists: true, $ne: "" },
-    },
-  }
-);
-
-// Prevent duplicate emails within a company
-customerSchema.index(
-  { companyId: 1, email: 1 },
-  {
-    unique: true,
-    partialFilterExpression: {
-      email: { $exists: true, $ne: "" },
-    },
+    collation: { locale: "en", strength: 2 },
   }
 );
 

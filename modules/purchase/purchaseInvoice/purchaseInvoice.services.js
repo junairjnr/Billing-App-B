@@ -312,7 +312,7 @@ export const createPurchaseInvoice = async ({
     const processedItems = items.map((row, index) => {
       const dbItem      = dbItems.find((d) => String(d._id) === String(row.itemId));
       const taxableValue = Number((row.qty * row.rate).toFixed(2));
-      const taxPercent   = dbItem.taxPercent || 0;
+      const taxPercent   = Number(row.taxPercent ?? dbItem.taxPercent ?? 18);
       const sgst         = Number((taxableValue * taxPercent / 200).toFixed(2));
       const cgst         = Number((taxableValue * taxPercent / 200).toFixed(2));
       const total        = Number((taxableValue + sgst + cgst).toFixed(2));

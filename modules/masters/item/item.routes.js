@@ -4,10 +4,11 @@ import crudFactory from "../../../utils/crudFactory.js";
 import itemModel from "./item.model.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
+import ApiError from "../../../utils/ApiError.js";
+import { assertUniqueItemName } from "./item.service.js";
 
 const router = express.Router();
 
-// const ctrl = crudFactory(itemModel);
 const ctrl = crudFactory(itemModel, {
   selectFields:
     "name code uomId categoryId hsnCode price taxPercent description isActive createdAt",
@@ -16,6 +17,57 @@ const ctrl = crudFactory(itemModel, {
     { path: "categoryId", select: "name" },
     { path: "uomId", select: "name shortCode" },
   ],
+});
+
+const create = asyncHandler(async (req, res) => {
+  delete req.body.companyId;
+  req.body.name = await assertUniqueItemName(req.companyId, req.body.name);
+
+  try {
+    const doc = await itemModel.create({
+      ...req.body,
+      companyId: req.companyId,
+    });
+    res.status(201).json(new ApiResponse(201, doc, "Created successfully"));
+  } catch (err) {
+    if (err.code === 11000) {
+      throw new ApiError(409, `Product name "${req.body.name}" already exists`);
+    }
+    throw err;
+  }
+});
+
+const update = asyncHandler(async (req, res) => {
+  delete req.body.companyId;
+
+  if (req.body.name !== undefined) {
+    req.body.name = await assertUniqueItemName(
+      req.companyId,
+      req.body.name,
+      req.params.id
+    );
+  }
+
+  try {
+    const doc = await itemModel
+      .findOneAndUpdate(
+        { _id: req.params.id, companyId: req.companyId },
+        { $set: req.body },
+        { new: true, runValidators: true }
+      )
+      .select("name code uomId categoryId hsnCode price taxPercent description isActive createdAt")
+      .populate("categoryId", "name")
+      .populate("uomId", "name shortCode")
+      .lean();
+
+    if (!doc) throw new ApiError(404, "Record not found");
+    res.json(new ApiResponse(200, doc, "Updated successfully"));
+  } catch (err) {
+    if (err.code === 11000) {
+      throw new ApiError(409, `Product name "${req.body.name}" already exists`);
+    }
+    throw err;
+  }
 });
 
 router.use(protect);
@@ -46,8 +98,8 @@ router.get(
 
 router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
-router.post("/add", ctrl.create);
-router.put("/:id", ctrl.update);
+router.post("/add", create);
+router.put("/:id", update);
 router.delete("/:id", ctrl.remove);
 
 export default router;

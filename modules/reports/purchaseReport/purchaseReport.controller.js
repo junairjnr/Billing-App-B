@@ -1,6 +1,10 @@
 import asyncHandler  from "../../../utils/asyncHandler.js";
 import ApiResponse   from "../../../utils/ApiResponse.js";
 import PurchaseInvoice from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
+import {
+  getPurchaseInvoiceTaxTotals,
+  withPurchaseInvoiceTaxTotals,
+} from "./purchaseReport.tax.js";
 
 
 // ── 2. PURCHASE REPORT ────────────────────────────────────────
@@ -39,7 +43,7 @@ export const purchaseReport = asyncHandler(async (req, res) => {
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  const [data, total] = await Promise.all([
+  const [rawData, total] = await Promise.all([
     PurchaseInvoice.find(filter)
       .populate("vendorId",    "name phone")
       .populate("warehouseId", "name code")
@@ -51,19 +55,38 @@ export const purchaseReport = asyncHandler(async (req, res) => {
     PurchaseInvoice.countDocuments(filter),
   ]);
 
+  const data = rawData.map(withPurchaseInvoiceTaxTotals);
+
   // Summary totals
   const allData = await PurchaseInvoice.find(filter)
-    .select("netAmount totalSGST totalCGST totalTax grandTotal")
+    .select("items netAmount totalSGST totalCGST totalTax grandTotal")
     .lean();
 
-  const summary = {
-    totalInvoices:  total,
-    totalNetAmount: Number(allData.reduce((s, r) => s + r.netAmount,  0).toFixed(2)),
-    totalSGST:      Number(allData.reduce((s, r) => s + r.totalSGST,  0).toFixed(2)),
-    totalCGST:      Number(allData.reduce((s, r) => s + r.totalCGST,  0).toFixed(2)),
-    totalTax:       Number(allData.reduce((s, r) => s + r.totalTax,   0).toFixed(2)),
-    grandTotal:     Number(allData.reduce((s, r) => s + r.grandTotal, 0).toFixed(2)),
-  };
+  const summary = allData.reduce(
+    (acc, row) => {
+      const tax = getPurchaseInvoiceTaxTotals(row);
+      acc.totalNetAmount += row.netAmount ?? 0;
+      acc.totalSGST += tax.totalSGST;
+      acc.totalCGST += tax.totalCGST;
+      acc.totalTax += tax.totalTax;
+      acc.grandTotal += row.grandTotal ?? 0;
+      return acc;
+    },
+    {
+      totalNetAmount: 0,
+      totalSGST: 0,
+      totalCGST: 0,
+      totalTax: 0,
+      grandTotal: 0,
+    }
+  );
+
+  summary.totalInvoices = total;
+  summary.totalNetAmount = Number(summary.totalNetAmount.toFixed(2));
+  summary.totalSGST = Number(summary.totalSGST.toFixed(2));
+  summary.totalCGST = Number(summary.totalCGST.toFixed(2));
+  summary.totalTax = Number(summary.totalTax.toFixed(2));
+  summary.grandTotal = Number(summary.grandTotal.toFixed(2));
 
   res.json(new ApiResponse(200, {
     data,

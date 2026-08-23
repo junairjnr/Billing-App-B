@@ -8,6 +8,7 @@ import "../../masters/uom/uom.model.js";
 import "../../warehouse/warehouse.model.js";
 
 const parseIncludeZero = (value) => value === true || value === "true";
+const DEFAULT_GST_PERCENT = 18;
 
 // ── 1. STOCK REPORT ───────────────────────────────────────────
 // Current stock snapshot per item per warehouse
@@ -29,7 +30,7 @@ export const stockReport = asyncHandler(async (req, res) => {
   let data = await Stock.find(filter)
     .populate({
       path: "itemId",
-      select: "name code hsnCode categoryId uomId",
+      select: "name code hsnCode categoryId uomId taxPercent",
       populate: [
         { path: "categoryId", select: "name" },
         { path: "uomId", select: "name shortCode" },
@@ -38,11 +39,23 @@ export const stockReport = asyncHandler(async (req, res) => {
     .populate("warehouseId", "name code")
     .lean();
 
-  // Expose uom on row (uom lives on Item, not Stock)
-  data = data.map((row) => ({
-    ...row,
-    uomId: row.itemId?.uomId ?? null,
-  }));
+  // Expose uom, rate, and tax breakdown on each row
+  data = data.map((row) => {
+    const rate = row.avgCost ?? 0;
+    const stockValue = Number((row.qty * rate).toFixed(2));
+    const taxPercent = Number(row.itemId?.taxPercent) || DEFAULT_GST_PERCENT;
+    const sgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
+    const cgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
+
+    return {
+      ...row,
+      uomId: row.itemId?.uomId ?? null,
+      rate,
+      stockValue,
+      sgst,
+      cgst,
+    };
+  });
 
   data.sort((a, b) =>
     (a.itemId?.name ?? "").localeCompare(b.itemId?.name ?? ""),
@@ -58,7 +71,7 @@ export const stockReport = asyncHandler(async (req, res) => {
 
   // Calculate summary
   const totalItems = data.length;
-  const totalStockValue = data.reduce((s, r) => s + r.qty * r.avgCost, 0);
+  const totalStockValue = data.reduce((s, r) => s + r.stockValue, 0);
 
   res.json(
     new ApiResponse(200, {
