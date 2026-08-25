@@ -23,6 +23,10 @@ export const VIEW_PERMISSIONS = [
   { key: "reports.shop", label: "Shop Report", group: "Reports" },
   { key: "reports.purchaseHistory", label: "Purchase History", group: "Reports" },
   { key: "reports.salesHistory", label: "Sales History", group: "Reports" },
+  { key: "reports.salesReturnHistory", label: "Sales Return History", group: "Reports" },
+  { key: "reports.purchaseReturnHistory", label: "Purchase Return History", group: "Reports" },
+  { key: "expense.voucher", label: "Expense", group: "Expense" },
+  { key: "reports.expense", label: "Expense Report", group: "Reports" },
 ];
 
 export const ALL_VIEW_KEYS = VIEW_PERMISSIONS.map((p) => p.key);
@@ -55,6 +59,10 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "reports.shop": true,
     "reports.purchaseHistory": true,
     "reports.salesHistory": true,
+    "reports.salesReturnHistory": true,
+    "reports.purchaseReturnHistory": true,
+    "expense.voucher": true,
+    "reports.expense": true,
   },
   staff: {
     dashboard: true,
@@ -79,6 +87,10 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "reports.shop": false,
     "reports.purchaseHistory": false,
     "reports.salesHistory": false,
+    "reports.salesReturnHistory": false,
+    "reports.purchaseReturnHistory": false,
+    "expense.voucher": false,
+    "reports.expense": false,
   },
 };
 

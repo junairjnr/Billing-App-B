@@ -15,9 +15,12 @@ const mapToObject = (views) => {
   return { ...views };
 };
 
-const normalizeViews = (views = {}) =>
+const normalizeViews = (views = {}, fallback = {}) =>
   Object.fromEntries(
-    ALL_VIEW_KEYS.map((key) => [key, Boolean(views[key])])
+    ALL_VIEW_KEYS.map((key) => [
+      key,
+      views[key] !== undefined ? Boolean(views[key]) : Boolean(fallback[key]),
+    ])
   );
 
 export const seedDefaultPermissions = async (companyId) => {
@@ -41,7 +44,7 @@ export const getEffectivePermissions = async (companyId, role) => {
 
   const doc = await RolePermission.findOne({ companyId, role }).lean();
   const fallback = DEFAULT_ROLE_PERMISSIONS[role] || {};
-  const views = normalizeViews(mapToObject(doc?.views ?? fallback));
+  const views = normalizeViews(mapToObject(doc?.views), fallback);
 
   return {
     ...views,
@@ -60,9 +63,10 @@ export const getAllRolePermissions = async (companyId) => {
   const byRole = Object.fromEntries(
     MANAGED_ROLES.map((role) => {
       const doc = docs.find((d) => d.role === role);
+      const fallback = DEFAULT_ROLE_PERMISSIONS[role] || {};
       return [
         role,
-        normalizeViews(mapToObject(doc?.views ?? DEFAULT_ROLE_PERMISSIONS[role])),
+        normalizeViews(mapToObject(doc?.views), fallback),
       ];
     })
   );
@@ -101,7 +105,7 @@ export const updateCompanySettings = async (companyId, payload) => {
   const company = await Company.findById(companyId);
   if (!company) throw new ApiError(404, "Company not found");
 
-  const { name, code, email, phone, address, logo, plan } = payload;
+  const { name, code, email, phone, address, logo, plan, gstin, terms } = payload;
 
   if (name && name !== company.name) {
     const exists = await Company.findOne({ name, _id: { $ne: companyId } });
@@ -123,6 +127,8 @@ export const updateCompanySettings = async (companyId, payload) => {
   if (address !== undefined) company.address = address;
   if (logo !== undefined) company.logo = logo;
   if (plan !== undefined) company.plan = plan;
+  if (gstin !== undefined) company.gstin = gstin;
+  if (terms !== undefined) company.terms = terms;
 
   await company.save();
   return company;

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 dotenv.config(); // Load environment variables from .env file
 
 import app from "./app.js"; // import the configured express app
+import { syncItemIndexes } from "./modules/masters/item/item.service.js";
 
 const PORT = process.env.PORT || 8008;
 const MONGO_URI = process.env.MONGO_URI;
@@ -13,6 +14,13 @@ const startServer = async () => {
   try {
     await mongoose.connect(MONGO_URI);
     console.log("✅ MongoDB connected");
+
+    try {
+      await syncItemIndexes();
+      console.log("✅ Item indexes synced");
+    } catch (error) {
+      console.warn("⚠️ Item index sync skipped:", error.message);
+    }
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);

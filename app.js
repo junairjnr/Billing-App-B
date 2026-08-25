@@ -87,6 +87,7 @@ import reportRoutes from "./modules/reports/report.routes.js";
 import bankAccountRoutes from "./modules/masters/bank/bank.routes.js";
 import receiptRoutes from "./modules/receipt-payment/receipt.routes.js";
 import vendorPaymentRoutes from "./modules/receipt-payment/vendorPayment.routes.js";
+import expenseRoutes from "./modules/expense/expense.routes.js";
 import settingsRoutes from "./modules/settings/settings.routes.js";
 import * as rpCtrl from "./modules/receipt-payment/receiptPayment.controller.js";
 import protect from "./middlewares/authHandler.js";
@@ -148,6 +149,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/bank-accounts", bankAccountRoutes);
 app.use("/api/receipts", receiptRoutes);
 app.use("/api/vendor-payments", vendorPaymentRoutes);
+app.use("/api/expenses", expenseRoutes);
 app.use("/api/settings", settingsRoutes);
 
 app.get("/api/customers/:id/outstanding", protect, fyScope, rpCtrl.customerOutstanding);

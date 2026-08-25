@@ -8,18 +8,14 @@ import BankAccount from "../masters/bank/bank.model.js";
 import FinancialYear from "../financialYear/financialYear.model.js";
 import ApiError from "../../utils/ApiError.js";
 import { createLedgerEntries, reverseLedgerEntries } from "./ledger.service.js";
-
-const getFYCode = (label) => {
-  const parts = label.split("-");
-  return parts[0].slice(2) + parts[1];
-};
+import { getFYDocumentCode, getDocumentSequence } from "../../utils/fyCode.js";
 
 const voucherPrefix = (voucherType) => (voucherType === "receipt" ? "RCPT" : "PAY");
 
 export const generateVoucherNo = async (companyId, financialYearId, voucherType) => {
   const fy = await FinancialYear.findById(financialYearId);
   if (!fy) throw new ApiError(404, "Financial year not found");
-  const prefix = `${voucherPrefix(voucherType)}-${getFYCode(fy.label)}`;
+  const prefix = `${voucherPrefix(voucherType)}-${getFYDocumentCode(fy.label)}`;
 
   const last = await ReceiptPayment.findOne(
     { companyId, financialYearId, voucherType },
@@ -28,8 +24,7 @@ export const generateVoucherNo = async (companyId, financialYearId, voucherType)
   );
 
   if (!last) return `${prefix}-0001`;
-  const parts = last.voucherNo.split("-");
-  const lastNo = parseInt(parts[parts.length - 1]) || 0;
+  const lastNo = getDocumentSequence(last.voucherNo);
   return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
 };
 
@@ -45,11 +40,19 @@ const partySnapshotFromCustomer = (party) => ({
     .join(", "),
 });
 
+const getEffectiveInvoiceTotal = (inv) =>
+  Math.max(
+    0,
+    Number((Number(inv.grandTotal || 0) - Number(inv.returnedAmount || 0)).toFixed(2))
+  );
+
 const updateInvoicePayment = (invoice, amountAdjusted) => {
   const paidBefore = invoice.paidAmount ?? 0;
   const newPaid = Number((paidBefore + amountAdjusted).toFixed(2));
-  const newBalance = Number((invoice.grandTotal - newPaid).toFixed(2));
-  const newStatus = newBalance <= 0.01 ? "paid" : newPaid > 0 ? "partial" : "pending";
+  const effectiveTotal = getEffectiveInvoiceTotal(invoice);
+  const newBalance = Number((effectiveTotal - newPaid).toFixed(2));
+  const newStatus =
+    newBalance <= 0.01 ? "paid" : newPaid > 0 ? "partial" : "pending";
 
   invoice.paidAmount = newPaid;
   invoice.balanceAmount = Math.max(0, newBalance);
@@ -58,8 +61,10 @@ const updateInvoicePayment = (invoice, amountAdjusted) => {
 
 const reverseInvoicePayment = (invoice, amountAdjusted) => {
   const newPaid = Number(Math.max(0, invoice.paidAmount - amountAdjusted).toFixed(2));
-  const newBalance = Number((invoice.grandTotal - newPaid).toFixed(2));
-  const newStatus = newPaid <= 0 ? "pending" : newBalance <= 0.01 ? "paid" : "partial";
+  const effectiveTotal = getEffectiveInvoiceTotal(invoice);
+  const newBalance = Number((effectiveTotal - newPaid).toFixed(2));
+  const newStatus =
+    newPaid <= 0 ? "pending" : newBalance <= 0.01 ? "paid" : "partial";
 
   invoice.paidAmount = newPaid;
   invoice.balanceAmount = Math.max(0, newBalance);
@@ -78,12 +83,15 @@ const partyObjectId = (partyId) => {
 
 const computeInvoiceBalance = (inv) => {
   const paid = inv.paidAmount ?? 0;
-  return Math.max(0, Number((inv.grandTotal - paid).toFixed(2)));
+  const effectiveTotal = getEffectiveInvoiceTotal(inv);
+  return Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
 };
 
-const computePaymentStatus = (grandTotal, paid) => {
+const computePaymentStatus = (inv) => {
+  const effectiveTotal = getEffectiveInvoiceTotal(inv);
+  const paid = inv.paidAmount ?? 0;
   if (paid <= 0) return "pending";
-  if (paid >= grandTotal - 0.009) return "paid";
+  if (paid >= effectiveTotal - 0.009) return "paid";
   return "partial";
 };
 
@@ -95,7 +103,7 @@ const syncLegacyPaymentFields = async (Model, filter) => {
     isActive: { $ne: false },
     grandTotal: { $gt: 0 },
   })
-    .select("_id grandTotal paidAmount balanceAmount paymentStatus")
+    .select("_id grandTotal returnedAmount paidAmount balanceAmount paymentStatus")
     .lean();
 
   if (!docs.length) return;
@@ -104,13 +112,13 @@ const syncLegacyPaymentFields = async (Model, filter) => {
   for (const inv of docs) {
     const paid = inv.paidAmount ?? 0;
     const balance = computeInvoiceBalance(inv);
-    const paymentStatus = computePaymentStatus(inv.grandTotal, paid);
+    const paymentStatus = computePaymentStatus(inv);
 
     const needsUpdate =
       (inv.balanceAmount ?? 0) !== balance ||
       (inv.paidAmount ?? 0) !== paid ||
       !inv.paymentStatus ||
-      (balance > 0 && inv.paymentStatus === "paid" && paid < inv.grandTotal - 0.009);
+      (balance > 0 && inv.paymentStatus === "paid" && paid < getEffectiveInvoiceTotal(inv) - 0.009);
 
     if (needsUpdate) {
       bulkOps.push({
@@ -157,27 +165,44 @@ export const getOutstandingInvoices = async ({
     grandTotal: { $gt: 0 },
   })
     .select(
-      `invoiceNo ${dateField} grandTotal paidAmount balanceAmount paymentStatus status`
+      `invoiceNo ${dateField} grandTotal returnedAmount paidAmount balanceAmount paymentStatus status createdAt`
     )
-    .sort({ [dateField]: 1 })
+    .sort({ [dateField]: 1, createdAt: 1, _id: 1 })
     .lean();
 
-  return invoices
-    .map((inv) => {
-      const paid = inv.paidAmount ?? 0;
-      const balance = computeInvoiceBalance(inv);
+  const mapped = invoices.map((inv) => {
+    const paid = inv.paidAmount ?? 0;
+    const returnedAmount = inv.returnedAmount ?? 0;
+    const effectiveTotal = getEffectiveInvoiceTotal(inv);
+    const balance = computeInvoiceBalance(inv);
 
-      return {
-        _id: inv._id,
-        invoiceNo: inv.invoiceNo,
-        invoiceDate: inv[dateField],
-        grandTotal: inv.grandTotal,
-        paidAmount: paid,
-        balanceAmount: balance,
-        paymentStatus: inv.paymentStatus ?? computePaymentStatus(inv.grandTotal, paid),
-      };
-    })
-    .filter((inv) => inv.balanceAmount > 0.009);
+    return {
+      _id: inv._id,
+      invoiceNo: inv.invoiceNo,
+      invoiceDate: inv[dateField],
+      createdAt: inv.createdAt,
+      grandTotal: inv.grandTotal,
+      returnedAmount,
+      effectiveTotal,
+      paidAmount: paid,
+      balanceAmount: balance,
+      paymentStatus: inv.paymentStatus ?? computePaymentStatus(inv),
+    };
+  });
+
+  const summary = mapped.reduce(
+    (acc, inv) => ({
+      invoiceCount: acc.invoiceCount + 1,
+      totalAmount: Number((acc.totalAmount + inv.effectiveTotal).toFixed(2)),
+      totalPaid: Number((acc.totalPaid + inv.paidAmount).toFixed(2)),
+      totalOutstanding: Number((acc.totalOutstanding + inv.balanceAmount).toFixed(2)),
+    }),
+    { invoiceCount: 0, totalAmount: 0, totalPaid: 0, totalOutstanding: 0 }
+  );
+
+  const outstanding = mapped.filter((inv) => inv.balanceAmount > 0.009);
+
+  return { invoices: outstanding, summary };
 };
 
 export const createVoucher = async ({
@@ -271,7 +296,7 @@ export const createVoucher = async ({
       if ((invoice.balanceAmount ?? 0) !== currentBalance || !invoice.paymentStatus) {
         invoice.paidAmount = paidBefore;
         invoice.balanceAmount = currentBalance;
-        invoice.paymentStatus = computePaymentStatus(invoice.grandTotal, paidBefore);
+        invoice.paymentStatus = computePaymentStatus(invoice);
       }
 
       if (amount > currentBalance + 0.01) {
@@ -289,7 +314,7 @@ export const createVoucher = async ({
         invoiceId: invoice._id,
         invoiceNo: invoice.invoiceNo,
         invoiceDate: invoice.invoiceDate ?? invoice.purchaseDate,
-        invoiceTotal: invoice.grandTotal,
+        invoiceTotal: getEffectiveInvoiceTotal(invoice),
         paidBefore,
         amountAdjusted: amount,
         balanceAfter: invoice.balanceAmount,

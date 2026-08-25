@@ -40,7 +40,8 @@ itemSchema.index(
   { companyId: 1, name: 1 },
   {
     unique: true,
-    collation: { locale: "en", strength: 2 },
+    // strength 3 = case-insensitive, punctuation-sensitive (fixes false dupes with " in names)
+    collation: { locale: "en", strength: 3 },
   }
 );
 itemSchema.index({ companyId: 1, name: "text", description: "text" });

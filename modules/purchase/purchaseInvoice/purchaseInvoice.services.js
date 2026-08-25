@@ -227,20 +227,14 @@ import Item            from "../../masters/item/item.model.js";
 import { moveStock }   from "../../stock/stock.services.js";
 import ApiError        from "../../../utils/ApiError.js";
 import FinancialYear   from "../../financialYear/financialYear.model.js";
+import { getFYDocumentCode, getDocumentSequence } from "../../../utils/fyCode.js";
 
-// ── Generate FY short code from label ────────────────────────
-// "2025-26" → "2526"
-const getFYCode = (label) => {
-  const parts = label.split("-");
-  return parts[0].slice(2) + parts[1]; // "25" + "26" = "2526"
-};
-
-// ── FY-based purchase invoice number ─────────────────────────
+// ── FY-based purchase invoice number: PINV-2026-2027-0001 ────
 const generatePurchaseInvoiceNo = async (companyId, financialYearId) => {
   const fy = await FinancialYear.findById(financialYearId);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const fyCode = getFYCode(fy.label); // "2526"
+  const fyCode = getFYDocumentCode(fy.label);
   const prefix = `PINV-${fyCode}`;
 
   const last = await PurchaseInvoice.findOne(
@@ -251,8 +245,7 @@ const generatePurchaseInvoiceNo = async (companyId, financialYearId) => {
 
   if (!last) return `${prefix}-0001`;
 
-  const parts  = last.invoiceNo.split("-");
-  const lastNo = parseInt(parts[parts.length - 1]) || 0;
+  const lastNo = getDocumentSequence(last.invoiceNo);
   const nextNo = String(lastNo + 1).padStart(4, "0");
   return `${prefix}-${nextNo}`;
 };

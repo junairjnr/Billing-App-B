@@ -31,7 +31,11 @@ const create = asyncHandler(async (req, res) => {
     res.status(201).json(new ApiResponse(201, doc, "Created successfully"));
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, `Product name "${req.body.name}" already exists`);
+      const field = err.keyPattern ? Object.keys(err.keyPattern).join(", ") : "field";
+      throw new ApiError(
+        409,
+        `Duplicate product ${field}. A record with this value already exists.`
+      );
     }
     throw err;
   }
@@ -64,7 +68,11 @@ const update = asyncHandler(async (req, res) => {
     res.json(new ApiResponse(200, doc, "Updated successfully"));
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, `Product name "${req.body.name}" already exists`);
+      const field = err.keyPattern ? Object.keys(err.keyPattern).join(", ") : "field";
+      throw new ApiError(
+        409,
+        `Duplicate product ${field}. A record with this value already exists.`
+      );
     }
     throw err;
   }
