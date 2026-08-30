@@ -89,9 +89,14 @@ import receiptRoutes from "./modules/receipt-payment/receipt.routes.js";
 import vendorPaymentRoutes from "./modules/receipt-payment/vendorPayment.routes.js";
 import expenseRoutes from "./modules/expense/expense.routes.js";
 import settingsRoutes from "./modules/settings/settings.routes.js";
+import accountingRoutes from "./modules/accounting/accounting.routes.js";
+import exportRoutes from "./modules/export/export.routes.js";
+import documentNumberRoutes from "./modules/documentNumber/documentNumber.routes.js";
+import uploadRoutes from "./modules/upload/upload.routes.js";
 import * as rpCtrl from "./modules/receipt-payment/receiptPayment.controller.js";
 import protect from "./middlewares/authHandler.js";
 import fyScope from "./middlewares/fyScope.js";
+import { apiRateLimiter } from "./middlewares/rateLimiter.js";
 const app = express();
 
 // ── 1. Allowed origins ────────────────────────────────────────
@@ -126,10 +131,11 @@ app.options("/{*any}", cors());
 
 // ── 4. Other middleware ───────────────────────────────────────
 app.use(helmet());
-app.use(express.json()); // ← only once
-app.use(morgan("dev"));
+app.use(express.json({ limit: "1mb" }));
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ── 5. Routes ─────────────────────────────────────────────────
+app.use("/api", apiRateLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/masters/item-categories", itemCategoryRoutes);
 app.use("/api/masters/items", itemRoutes);
@@ -151,6 +157,10 @@ app.use("/api/receipts", receiptRoutes);
 app.use("/api/vendor-payments", vendorPaymentRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/accounting", accountingRoutes);
+app.use("/api/export", exportRoutes);
+app.use("/api/document-numbers", documentNumberRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 app.get("/api/customers/:id/outstanding", protect, fyScope, rpCtrl.customerOutstanding);
 app.get("/api/vendors/:id/outstanding", protect, fyScope, rpCtrl.vendorOutstanding);

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import attachmentSchema from "../../upload/attachment.schema.js";
 
 // ── Item row inside invoice ───────────────────────────────────
 const purchaseItemSchema = new mongoose.Schema(
@@ -13,7 +14,9 @@ const purchaseItemSchema = new mongoose.Schema(
     uomId: { type: mongoose.Schema.Types.ObjectId, ref: "Uom", required: true },
     rate: { type: Number, required: true, min: 0 },
     qty: { type: Number, required: true, min: 0 },
-    taxableValue: { type: Number, required: true, min: 0 }, // qty * rate
+    discount: { type: Number, default: 0, min: 0, max: 100 },
+    discountAmt: { type: Number, default: 0 },
+    taxableValue: { type: Number, required: true, min: 0 },
     taxPercent: { type: Number, default: 0 },
     sgst: { type: Number, default: 0 },
     cgst: { type: Number, default: 0 },
@@ -96,6 +99,7 @@ const purchaseInvoiceSchema = new mongoose.Schema(
     },
 
     notes: { type: String },
+    attachments: { type: [attachmentSchema], default: [] },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

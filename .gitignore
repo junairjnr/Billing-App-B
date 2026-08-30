@@ -32,6 +32,9 @@ desktop.ini
 *.njsproj
 *.sln
 
+# ── Uploaded documents ────────────────────────────────────────
+uploads/
+
 # ── Build output ──────────────────────────────────────────────
 dist/
 build/

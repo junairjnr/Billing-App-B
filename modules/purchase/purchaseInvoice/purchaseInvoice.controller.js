@@ -25,10 +25,11 @@ const getOne = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
   const data = await purchaseService.createPurchaseInvoice({
-    companyId:       req.companyId,
-    branchId:        req.branchId,
-    financialYearId: req.fyId,
     ...req.body,
+    companyId: req.companyId,
+    branchId: req.branchId,
+    financialYearId: req.fyId,
+    userId: req.user.id,
   });
   res.status(201).json(new ApiResponse(201, data, "Purchase invoice created"));
 });

@@ -1,10 +1,16 @@
+import mongoose from "mongoose";
 import PurchaseReturn from "./purchaseReturn.model.js";
 import PurchaseInvoice from "../purchaseInvoice/purchaseInvoice.model.js";
-import FinancialYear from "../../financialYear/financialYear.model.js";
-import Company from "../../company/company.model.js";
+import Customer from "../../masters/customer/customer.model.js";
+import Item from "../../masters/item/item.model.js";
+import Warehouse from "../../warehouse/warehouse.model.js";
 import { moveStock } from "../../stock/stock.services.js";
 import ApiError from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
+import { getNextPurchaseReturnNo } from "../../documentNumber/documentNumber.service.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { normalizeAttachments } from "../../upload/upload.utils.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -17,37 +23,6 @@ const recalcPaymentStatus = (invoice) => {
   if (paid <= 0) invoice.paymentStatus = "pending";
   else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
   else invoice.paymentStatus = "partial";
-};
-
-const generatePurchaseReturnNo = async (companyId, financialYearId) => {
-  const [fy, company] = await Promise.all([
-    FinancialYear.findById(financialYearId),
-    Company.findById(companyId).select("code name"),
-  ]);
-  if (!fy) throw new ApiError(404, "Financial year not found");
-  if (!company) throw new ApiError(404, "Company not found");
-
-  const companyCode = company.code?.toUpperCase();
-  if (!companyCode) {
-    throw new ApiError(400, "Company code not set. Set company code before creating returns.");
-  }
-
-  const prefix = `${companyCode}/PR/${fy.label}/`;
-
-  const last = await PurchaseReturn.findOne(
-    {
-      companyId,
-      financialYearId,
-      returnNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
-    },
-    { returnNo: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}01`;
-
-  const lastNo = parseInt(last.returnNo.split("/").pop(), 10) || 0;
-  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
 const getReturnedQtyByLine = async (purchaseInvoiceId) => {
@@ -147,15 +122,200 @@ export const getReturnableItems = async (companyId, purchaseInvoiceId) => {
   };
 };
 
-export const createPurchaseReturn = async ({
+const vendorSnapshotFromCustomer = (vendor) => ({
+  name: vendor.name,
+  gstin: vendor.gstin || "",
+  place: vendor.address?.place || "",
+  state: vendor.address?.state || "",
+  stateCode: vendor.address?.stateCode || "",
+  address: [vendor.address?.line1, vendor.address?.place, vendor.address?.city]
+    .filter(Boolean)
+    .join(", "),
+});
+
+const buildManualPurchaseReturnLine = (dbItem, row, slNo) => {
+  const qty = Number(row.qty);
+  const rate = Number(row.rate);
+  const taxPercent = Number(row.taxPercent ?? dbItem.taxPercent ?? 18);
+  const taxableValue = Number((qty * rate).toFixed(2));
+  const sgst = Number(((taxableValue * taxPercent) / 200).toFixed(2));
+  const cgst = Number(((taxableValue * taxPercent) / 200).toFixed(2));
+  const total = Number((taxableValue + sgst + cgst).toFixed(2));
+
+  return {
+    slNo,
+    invoiceItemId: new mongoose.Types.ObjectId(),
+    itemId: dbItem._id,
+    hsn: row.hsn || dbItem.hsn || "",
+    uomId: dbItem.uomId?._id ?? dbItem.uomId,
+    rate,
+    qty,
+    taxPercent,
+    taxableValue,
+    sgst,
+    cgst,
+    total,
+  };
+};
+
+const createManualPurchaseReturn = async ({
   companyId,
   branchId,
   financialYearId,
-  purchaseInvoiceId,
   returnDate,
+  vendorId,
+  warehouseId,
+  referenceInvoiceNo,
+  vendorInvoiceNo,
   items,
   notes,
+  attachments,
 }) => {
+  if (!vendorId) throw new ApiError(400, "Vendor is required for manual return");
+  if (!warehouseId) throw new ApiError(400, "Warehouse is required for manual return");
+  if (!items?.length) throw new ApiError(400, "At least one return item is required");
+
+  const [vendor, warehouse] = await Promise.all([
+    Customer.findOne({ _id: vendorId, companyId, type: "purchase", isActive: true }),
+    Warehouse.findOne({ _id: warehouseId, companyId, isActive: true }),
+  ]);
+
+  if (!vendor) throw new ApiError(404, "Vendor not found");
+  if (!warehouse) throw new ApiError(404, "Warehouse not found");
+
+  const itemIds = [...new Set(items.map((row) => String(row.itemId)).filter(Boolean))];
+  const dbItems = await Item.find({ _id: { $in: itemIds }, companyId, isActive: true }).populate(
+    "uomId",
+    "name shortCode"
+  );
+  const itemMap = Object.fromEntries(dbItems.map((item) => [String(item._id), item]));
+
+  const processedItems = [];
+  let netAmount = 0;
+  let totalSGST = 0;
+  let totalCGST = 0;
+
+  for (const row of items) {
+    const qty = Number(row.qty);
+    const rate = Number(row.rate);
+    if (!row.itemId || !qty || qty <= 0) continue;
+    if (!rate || rate <= 0) {
+      throw new ApiError(400, "Rate is required for each manual return line");
+    }
+
+    const dbItem = itemMap[String(row.itemId)];
+    if (!dbItem) throw new ApiError(404, `Item not found: ${row.itemId}`);
+
+    const built = buildManualPurchaseReturnLine(dbItem, row, processedItems.length + 1);
+    processedItems.push(built);
+    netAmount += built.taxableValue;
+    totalSGST += built.sgst;
+    totalCGST += built.cgst;
+  }
+
+  if (!processedItems.length) {
+    throw new ApiError(400, "No valid return quantities provided");
+  }
+
+  const totalTax = Number((totalSGST + totalCGST).toFixed(2));
+  const total = Number((netAmount + totalTax).toFixed(2));
+  const grandTotal = Math.round(total);
+  const roundOff = Number((grandTotal - total).toFixed(2));
+  const returnNo = await getNextPurchaseReturnNo(companyId, financialYearId);
+  const originalInvoiceNo = referenceInvoiceNo?.trim() || "MANUAL";
+  const normalizedAttachments = normalizeAttachments(companyId, attachments);
+
+  return withTransaction(async (session) => {
+    const [purchaseReturn] = await PurchaseReturn.create(
+      [
+        {
+          companyId,
+          branchId,
+          financialYearId,
+          warehouseId,
+          returnNo,
+          returnDate: new Date(returnDate),
+          returnMode: "manual",
+          referenceInvoiceNo: referenceInvoiceNo?.trim() || "",
+          originalInvoiceNo,
+          vendorInvoiceNo: vendorInvoiceNo?.trim() || "",
+          vendorId,
+          vendorSnapshot: vendorSnapshotFromCustomer(vendor),
+          items: processedItems,
+          netAmount: Number(netAmount.toFixed(2)),
+          totalSGST: Number(totalSGST.toFixed(2)),
+          totalCGST: Number(totalCGST.toFixed(2)),
+          totalTax,
+          total,
+          roundOff,
+          grandTotal,
+          status: "confirmed",
+          notes,
+          attachments: normalizedAttachments,
+        },
+      ],
+      sessionOpts(session)
+    );
+
+    for (const row of processedItems) {
+      await moveStock(
+        {
+          companyId,
+          branchId,
+          financialYearId,
+          warehouseId,
+          itemId: row.itemId,
+          uomId: row.uomId,
+          movementType: "purchase_return",
+          qty: row.qty,
+          rate: row.rate,
+          referenceType: "PurchaseReturn",
+          referenceId: purchaseReturn._id,
+          referenceNo: returnNo,
+        },
+        session
+      );
+    }
+
+    return purchaseReturn;
+  });
+};
+
+export const createPurchaseReturn = async (payload) => {
+  const {
+    companyId,
+    branchId,
+    financialYearId,
+    purchaseInvoiceId,
+    returnDate,
+    items,
+    notes,
+    returnMode,
+    vendorId,
+    warehouseId,
+    referenceInvoiceNo,
+    vendorInvoiceNo,
+    attachments,
+  } = payload;
+
+  const isManual = returnMode === "manual" || !purchaseInvoiceId;
+
+  if (isManual) {
+    return createManualPurchaseReturn({
+      companyId,
+      branchId,
+      financialYearId,
+      returnDate,
+      vendorId,
+      warehouseId,
+      referenceInvoiceNo,
+      vendorInvoiceNo,
+      items,
+      notes,
+      attachments,
+    });
+  }
+
   const invoice = await PurchaseInvoice.findOne({
     _id: purchaseInvoiceId,
     companyId,
@@ -209,7 +369,8 @@ export const createPurchaseReturn = async ({
   const total = Number((netAmount + totalTax).toFixed(2));
   const grandTotal = Math.round(total);
   const roundOff = Number((grandTotal - total).toFixed(2));
-  const returnNo = await generatePurchaseReturnNo(companyId, financialYearId);
+  const returnNo = await getNextPurchaseReturnNo(companyId, financialYearId);
+  const normalizedAttachments = normalizeAttachments(companyId, attachments);
 
   return withTransaction(async (session) => {
     const [purchaseReturn] = await PurchaseReturn.create(
@@ -220,6 +381,7 @@ export const createPurchaseReturn = async ({
         warehouseId: invoice.warehouseId,
         returnNo,
         returnDate: new Date(returnDate),
+        returnMode: "invoice",
         purchaseInvoiceId: invoice._id,
         originalInvoiceNo: invoice.invoiceNo,
         vendorInvoiceNo: invoice.vendorInvoiceNo,
@@ -235,6 +397,7 @@ export const createPurchaseReturn = async ({
         grandTotal,
         status: "confirmed",
         notes,
+        attachments: normalizedAttachments,
       }],
       sessionOpts(session)
     );
@@ -277,7 +440,8 @@ export const getAllPurchaseReturns = async ({
   purchaseInvoiceId,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
-  if (search) filter.returnNo = { $regex: search, $options: "i" };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) filter.returnNo = regexContains(safeSearch);
   if (purchaseInvoiceId) filter.purchaseInvoiceId = purchaseInvoiceId;
 
   const skip = (Number(page) - 1) * Number(limit);
@@ -287,7 +451,7 @@ export const getAllPurchaseReturns = async ({
       .populate("warehouseId", "name code")
       .populate("purchaseInvoiceId", "invoiceNo vendorInvoiceNo purchaseDate")
       .select(
-        "returnNo returnDate purchaseInvoiceId originalInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId grandTotal status createdAt"
+        "returnNo returnDate returnMode purchaseInvoiceId originalInvoiceNo referenceInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId grandTotal status createdAt"
       )
       .sort({ returnDate: -1 })
       .skip(skip)

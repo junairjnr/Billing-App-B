@@ -32,10 +32,10 @@ const getReturnableItems = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
   const data = await salesReturnService.createSalesReturn({
+    ...req.body,
     companyId: req.companyId,
     branchId: req.branchId,
     financialYearId: req.fyId,
-    ...req.body,
   });
   res.status(201).json(new ApiResponse(201, data, "Sales return created"));
 });

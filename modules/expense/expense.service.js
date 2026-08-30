@@ -1,7 +1,10 @@
 import Expense from "./expense.model.js";
-import FinancialYear from "../financialYear/financialYear.model.js";
 import ApiError from "../../utils/ApiError.js";
-import { getFYDocumentCode, getDocumentSequence } from "../../utils/fyCode.js";
+import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
+import { postExpense, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
+import { getNextExpenseNo } from "../documentNumber/documentNumber.service.js";
+import { regexContains } from "../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../utils/sanitizeInput.js";
 
 const baseFilter = ({ companyId, branchId, financialYearId }) => ({
   companyId,
@@ -11,40 +14,44 @@ const baseFilter = ({ companyId, branchId, financialYearId }) => ({
   status: { $ne: "cancelled" },
 });
 
-export const generateExpenseNo = async (companyId, financialYearId) => {
-  const fy = await FinancialYear.findById(financialYearId);
-  if (!fy) throw new ApiError(404, "Financial year not found");
-
-  const prefix = `EXP-${getFYDocumentCode(fy.label)}`;
-  const last = await Expense.findOne(
-    { companyId, financialYearId },
-    { expenseNo: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}-0001`;
-  const lastNo = getDocumentSequence(last.expenseNo);
-  return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
-};
-
 export const createExpense = async (ctx, body) => {
-  const expenseNo = await generateExpenseNo(ctx.companyId, ctx.financialYearId);
+  return withTransaction(async (session) => {
+    const expenseNo = await getNextExpenseNo(ctx.companyId, ctx.financialYearId);
 
-  return Expense.create({
-    companyId: ctx.companyId,
-    branchId: ctx.branchId,
-    financialYearId: ctx.financialYearId,
-    expenseNo,
-    date: body.date,
-    category: body.category,
-    title: body.title,
-    amount: Number(body.amount),
-    paymentMode: body.paymentMode || "cash",
-    bankAccountId: body.bankAccountId || undefined,
-    referenceNo: body.referenceNo,
-    notes: body.notes,
-    createdBy: ctx.userId,
-    updatedBy: ctx.userId,
+    const [expense] = await Expense.create(
+      [
+        {
+          companyId: ctx.companyId,
+          branchId: ctx.branchId,
+          financialYearId: ctx.financialYearId,
+          expenseNo,
+          date: body.date,
+          category: body.category,
+          title: body.title,
+          amount: Number(body.amount),
+          paymentMode: body.paymentMode || "cash",
+          bankAccountId: body.bankAccountId || undefined,
+          referenceNo: body.referenceNo,
+          notes: body.notes,
+          createdBy: ctx.userId,
+          updatedBy: ctx.userId,
+        },
+      ],
+      sessionOpts(session)
+    );
+
+    await postExpense(
+      {
+        companyId: ctx.companyId,
+        branchId: ctx.branchId,
+        financialYearId: ctx.financialYearId,
+        expense,
+        userId: ctx.userId,
+      },
+      session
+    );
+
+    return expense;
   });
 };
 
@@ -71,18 +78,33 @@ export const updateExpense = async (ctx, id, body) => {
 };
 
 export const deleteExpense = async (ctx, id) => {
-  const doc = await Expense.findOne({
-    _id: id,
-    ...baseFilter(ctx),
+  return withTransaction(async (session) => {
+    const doc = await Expense.findOne({
+      _id: id,
+      ...baseFilter(ctx),
+    }).session(session);
+
+    if (!doc) throw new ApiError(404, "Expense not found");
+
+    await reverseDocumentJournal(
+      {
+        companyId: ctx.companyId,
+        branchId: ctx.branchId,
+        financialYearId: ctx.financialYearId,
+        referenceType: "Expense",
+        referenceId: doc._id,
+        entryDate: new Date(),
+        userId: ctx.userId,
+      },
+      session
+    );
+
+    doc.status = "cancelled";
+    doc.isActive = false;
+    doc.updatedBy = ctx.userId;
+    await doc.save({ session });
+    return doc;
   });
-
-  if (!doc) throw new ApiError(404, "Expense not found");
-
-  doc.status = "cancelled";
-  doc.isActive = false;
-  doc.updatedBy = ctx.userId;
-  await doc.save();
-  return doc;
 };
 
 export const getExpense = async (ctx, id) => {
@@ -104,10 +126,13 @@ export const listExpenses = async (ctx, query) => {
   if (category) filter.category = category;
   if (paymentMode) filter.paymentMode = paymentMode;
   if (search) {
-    filter.$or = [
-      { expenseNo: { $regex: search, $options: "i" } },
-      { title: { $regex: search, $options: "i" } },
-    ];
+    const safeSearch = optionalSearchString(search);
+    if (safeSearch) {
+      filter.$or = [
+        { expenseNo: regexContains(safeSearch) },
+        { title: regexContains(safeSearch) },
+      ];
+    }
   }
   if (dateFrom || dateTo) {
     filter.date = {};

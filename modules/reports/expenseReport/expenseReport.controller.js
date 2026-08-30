@@ -1,13 +1,24 @@
+import mongoose from "mongoose";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import Expense from "../../expense/expense.model.js";
+
+const toObjectId = (value) => {
+  if (!value) return null;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (mongoose.Types.ObjectId.isValid(String(value))) {
+    return new mongoose.Types.ObjectId(String(value));
+  }
+  return value;
+};
 
 export const expenseReport = asyncHandler(async (req, res) => {
   const { category, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
 
   const filter = {
-    companyId: req.companyId,
-    financialYearId: req.fyId,
+    companyId: toObjectId(req.companyId),
+    branchId: toObjectId(req.branchId),
+    financialYearId: toObjectId(req.fyId),
     isActive: true,
     status: { $ne: "cancelled" },
   };
@@ -38,7 +49,7 @@ export const expenseReport = asyncHandler(async (req, res) => {
       {
         $group: {
           _id: null,
-          totalAmount: { $sum: "$amount" },
+          totalAmount: { $sum: { $ifNull: ["$amount", 0] } },
           count: { $sum: 1 },
         },
       },
@@ -57,8 +68,8 @@ export const expenseReport = asyncHandler(async (req, res) => {
       totalPages,
       hasNext: Number(page) < totalPages,
       summary: {
-        totalAmount: Number((summary.totalAmount || 0).toFixed(2)),
-        count: summary.count || 0,
+        totalAmount: Number((summary.totalAmount ?? 0).toFixed(2)),
+        count: summary.count ?? total,
       },
     })
   );

@@ -1,32 +1,15 @@
-import mongoose from "mongoose";
 import ReceiptPayment from "./receiptPayment.model.js";
 import Allocation from "./allocation.model.js";
 import SalesInvoice from "../sales/salesInvoice/salesInvoice.model.js";
 import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import Customer from "../masters/customer/customer.model.js";
 import BankAccount from "../masters/bank/bank.model.js";
-import FinancialYear from "../financialYear/financialYear.model.js";
 import ApiError from "../../utils/ApiError.js";
-import { createLedgerEntries, reverseLedgerEntries } from "./ledger.service.js";
-import { getFYDocumentCode, getDocumentSequence } from "../../utils/fyCode.js";
-
-const voucherPrefix = (voucherType) => (voucherType === "receipt" ? "RCPT" : "PAY");
-
-export const generateVoucherNo = async (companyId, financialYearId, voucherType) => {
-  const fy = await FinancialYear.findById(financialYearId);
-  if (!fy) throw new ApiError(404, "Financial year not found");
-  const prefix = `${voucherPrefix(voucherType)}-${getFYDocumentCode(fy.label)}`;
-
-  const last = await ReceiptPayment.findOne(
-    { companyId, financialYearId, voucherType },
-    { voucherNo: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}-0001`;
-  const lastNo = getDocumentSequence(last.voucherNo);
-  return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
-};
+import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
+import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
+import { getNextVoucherNo } from "../documentNumber/documentNumber.service.js";
+import { regexContains } from "../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../utils/sanitizeInput.js";
 
 const partySnapshotFromCustomer = (party) => ({
   name: party.name,
@@ -75,10 +58,10 @@ const getInvoiceModel = (invoiceType) =>
   invoiceType === "sales" ? SalesInvoice : PurchaseInvoice;
 
 const partyObjectId = (partyId) => {
-  if (!mongoose.Types.ObjectId.isValid(partyId)) {
+  if (!partyId || !String(partyId).match(/^[a-f\d]{24}$/i)) {
     throw new ApiError(400, "Invalid party id");
   }
-  return new mongoose.Types.ObjectId(partyId);
+  return partyId;
 };
 
 const computeInvoiceBalance = (inv) => {
@@ -220,10 +203,7 @@ export const createVoucher = async ({
   notes,
   userId,
 }) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
+  return withTransaction(async (session) => {
     const partyType = voucherType === "receipt" ? "customer" : "vendor";
     const partyTypeFilter = voucherType === "receipt" ? "sales" : "purchase";
     const invoiceType = voucherType === "receipt" ? "sales" : "purchase";
@@ -321,7 +301,7 @@ export const createVoucher = async ({
       });
     }
 
-    const voucherNo = await generateVoucherNo(companyId, financialYearId, voucherType);
+    const voucherNo = await getNextVoucherNo(companyId, financialYearId, voucherType);
 
     const [voucher] = await ReceiptPayment.create(
       [
@@ -346,7 +326,7 @@ export const createVoucher = async ({
           updatedBy: userId,
         },
       ],
-      { session }
+      sessionOpts(session)
     );
 
     await Allocation.insertMany(
@@ -356,36 +336,23 @@ export const createVoucher = async ({
         companyId,
         financialYearId,
       })),
-      { session }
+      sessionOpts(session)
     );
 
-    await createLedgerEntries(
-      {
-        companyId,
-        branchId,
-        financialYearId,
-        receiptPaymentId: voucher._id,
-        voucherNo,
-        entryDate: new Date(date),
-        voucherType,
-        partyId,
-        partyName: party.name,
-        paymentMode,
-        bankAccountId,
-        bankAccountName,
-        totalAmount: Number(totalAmount),
-      },
-      session
-    );
+    if (voucherType === "receipt") {
+      await postReceipt(
+        { companyId, branchId, financialYearId, voucher, userId },
+        session
+      );
+    } else {
+      await postVendorPayment(
+        { companyId, branchId, financialYearId, voucher, userId },
+        session
+      );
+    }
 
-    await session.commitTransaction();
     return await getOneVoucher(companyId, voucher._id);
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 };
 
 export const getAllVouchers = async ({
@@ -412,7 +379,8 @@ export const getAllVouchers = async ({
 
   if (partyId) filter.partyId = partyId;
   if (paymentMode) filter.paymentMode = paymentMode;
-  if (search) filter.voucherNo = { $regex: search, $options: "i" };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) filter.voucherNo = regexContains(safeSearch);
 
   if (dateFrom || dateTo) {
     filter.date = {};
@@ -426,7 +394,7 @@ export const getAllVouchers = async ({
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  const [data, total] = await Promise.all([
+  const [data, total, summaryRows] = await Promise.all([
     ReceiptPayment.find(filter)
       .populate("partyId", "name phone")
       .sort({ date: -1 })
@@ -434,6 +402,16 @@ export const getAllVouchers = async ({
       .limit(Number(limit))
       .lean(),
     ReceiptPayment.countDocuments(filter),
+    ReceiptPayment.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          totalAmount: { $sum: "$totalAmount" },
+        },
+      },
+    ]),
   ]);
 
   const voucherIds = data.map((v) => v._id);
@@ -470,6 +448,10 @@ export const getAllVouchers = async ({
     page: Number(page),
     totalPages: Math.ceil(total / Number(limit)),
     hasNext: Number(page) < Math.ceil(total / Number(limit)),
+    summary: {
+      count: summaryRows[0]?.count ?? 0,
+      totalAmount: Number((summaryRows[0]?.totalAmount ?? 0).toFixed(2)),
+    },
   };
 };
 
@@ -539,11 +521,8 @@ export const getOneVoucher = async (companyId, id) => {
   };
 };
 
-export const deleteVoucher = async (companyId, id) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
+export const deleteVoucher = async (companyId, id, userId) => {
+  return withTransaction(async (session) => {
     const voucher = await ReceiptPayment.findOne({
       _id: id,
       companyId,
@@ -565,21 +544,28 @@ export const deleteVoucher = async (companyId, id) => {
       }
     }
 
-    await Allocation.deleteMany({ receiptPaymentId: id }, { session });
-    await reverseLedgerEntries(id, session);
+    await Allocation.deleteMany({ receiptPaymentId: id }, sessionOpts(session));
+
+    await reverseDocumentJournal(
+      {
+        companyId,
+        branchId: voucher.branchId,
+        financialYearId: voucher.financialYearId,
+        referenceType: "ReceiptPayment",
+        referenceId: voucher._id,
+        entryDate: new Date(),
+        userId,
+      },
+      session
+    );
 
     voucher.status = "cancelled";
     voucher.isActive = false;
+    voucher.updatedBy = userId;
     await voucher.save({ session });
 
-    await session.commitTransaction();
     return { message: "Voucher cancelled successfully" };
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 };
 
 // Backward-compatible adapter for old payment API

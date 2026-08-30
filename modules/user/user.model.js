@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import crypto from "crypto"; // ← ADD THIS
+import crypto from "crypto";
 
 const userSchema = new mongoose.Schema(
   {
@@ -26,8 +26,14 @@ const userSchema = new mongoose.Schema(
     password: { type: String, select: false },
     role: {
       type: String,
-      enum: ["super_admin", "admin", "manager", "staff"],
-      default: "staff",
+      required: true,
+      default: "viewer",
+      validate: {
+        validator(value) {
+          return typeof value === "string" && value.length > 0;
+        },
+        message: "Role is required",
+      },
     },
     isActive: { type: Boolean, default: true },
 

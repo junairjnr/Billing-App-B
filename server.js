@@ -1,9 +1,12 @@
 // load .env FIRST before anything else
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-dotenv.config(); // Load environment variables from .env file
+dotenv.config();
 
-import app from "./app.js"; // import the configured express app
+import { validateEnv } from "./utils/validateEnv.js";
+validateEnv();
+
+import app from "./app.js";
 import { syncItemIndexes } from "./modules/masters/item/item.service.js";
 
 const PORT = process.env.PORT || 8008;

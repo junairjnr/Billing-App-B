@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
+import attachmentSchema from "../../upload/attachment.schema.js";
 
 const purchaseReturnItemSchema = new mongoose.Schema(
   {
     slNo: { type: Number, required: true },
-    invoiceItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    invoiceItemId: { type: mongoose.Schema.Types.ObjectId },
     itemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Item",
@@ -48,12 +49,18 @@ const purchaseReturnSchema = new mongoose.Schema(
     returnNo: { type: String, required: true },
     returnDate: { type: Date, required: true },
 
+    returnMode: {
+      type: String,
+      enum: ["invoice", "manual"],
+      default: "invoice",
+    },
+
     purchaseInvoiceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseInvoice",
-      required: true,
     },
-    originalInvoiceNo: { type: String, required: true },
+    originalInvoiceNo: { type: String, trim: true, default: "" },
+    referenceInvoiceNo: { type: String, trim: true },
     vendorInvoiceNo: { type: String, trim: true },
 
     vendorId: {
@@ -86,6 +93,7 @@ const purchaseReturnSchema = new mongoose.Schema(
       default: "confirmed",
     },
     notes: { type: String },
+    attachments: { type: [attachmentSchema], default: [] },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

@@ -9,6 +9,7 @@ import ReceiptPayment from "../../receipt-payment/receiptPayment.model.js";
 import Expense from "../../expense/expense.model.js";
 import Stock from "../../stock/stock.model.js";
 import Item from "../../masters/item/item.model.js";
+import Customer from "../../masters/customer/customer.model.js";
 import "../../masters/itemCategory/itemCategory.model.js";
 
 const LOW_STOCK_THRESHOLD = 10;
@@ -91,6 +92,21 @@ const mergeTrend = (salesRows, purchaseRows) => {
   }));
 };
 
+const mergeDualTrend = (leftRows, rightRows, leftKey, rightKey) => {
+  const keys = [
+    ...new Set([...leftRows.map((row) => row.key), ...rightRows.map((row) => row.key)]),
+  ].sort();
+
+  const leftMap = Object.fromEntries(leftRows.map((row) => [row.key, row]));
+  const rightMap = Object.fromEntries(rightRows.map((row) => [row.key, row]));
+
+  return keys.map((key) => ({
+    month: leftMap[key]?.label || rightMap[key]?.label || key,
+    [leftKey]: leftMap[key]?.value || 0,
+    [rightKey]: rightMap[key]?.value || 0,
+  }));
+};
+
 const buildCategoryPercents = (rows) => {
   const total = rows.reduce((sum, row) => sum + row.amount, 0) || 1;
   return rows.map((row) => ({
@@ -107,6 +123,7 @@ export const dashboardReport = asyncHandler(async (req, res) => {
   const expenseFilter = buildCompanyFilter(req, {
     status: { $ne: "cancelled" },
   });
+  const returnFilter = buildCompanyFilter(req, { status: "confirmed" });
 
   const [
     salesTotal,
@@ -116,6 +133,8 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     expensesTotal,
     salesTrendRows,
     purchaseTrendRows,
+    salesReturnTrendRows,
+    purchaseReturnTrendRows,
     salesTypeRows,
     paymentStatusRows,
     topSoldRows,
@@ -129,6 +148,8 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     recentSales,
     recentPurchases,
     lowStockRows,
+    productCount,
+    customerCount,
   ] = await Promise.all([
     sumAmount(SalesInvoice, "grandTotal", invoiceFilter),
     sumAmount(PurchaseInvoice, "grandTotal", invoiceFilter),
@@ -143,6 +164,8 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     sumAmount(Expense, "amount", expenseFilter),
     aggregateMonthlyTrend(SalesInvoice, "invoiceDate", invoiceFilter),
     aggregateMonthlyTrend(PurchaseInvoice, "purchaseDate", invoiceFilter),
+    aggregateMonthlyTrend(SalesReturn, "returnDate", returnFilter),
+    aggregateMonthlyTrend(PurchaseReturn, "returnDate", returnFilter),
     SalesInvoice.aggregate([
       { $match: invoiceFilter },
       { $group: { _id: "$salesType", total: { $sum: "$grandTotal" } } },
@@ -195,8 +218,8 @@ export const dashboardReport = asyncHandler(async (req, res) => {
       { $sort: { amount: -1 } },
       { $limit: 8 },
     ]),
-    sumAmount(SalesReturn, "grandTotal", buildCompanyFilter(req, { status: "confirmed" })),
-    sumAmount(PurchaseReturn, "grandTotal", buildCompanyFilter(req, { status: "confirmed" })),
+    sumAmount(SalesReturn, "grandTotal", returnFilter),
+    sumAmount(PurchaseReturn, "grandTotal", returnFilter),
     aggregateMonthlyTrend(
       ReceiptPayment,
       "date",
@@ -242,6 +265,14 @@ export const dashboardReport = asyncHandler(async (req, res) => {
       .sort({ qty: 1 })
       .limit(10)
       .lean(),
+    Item.countDocuments({
+      companyId: invoiceFilter.companyId,
+      isActive: { $ne: false },
+    }),
+    Customer.countDocuments({
+      companyId: invoiceFilter.companyId,
+      isActive: { $ne: false },
+    }),
   ]);
 
   const itemIds = topSoldRows.map((row) => row._id).filter(Boolean);
@@ -299,16 +330,28 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     amount: row.value,
   }));
 
+  const returnTrend = mergeDualTrend(
+    salesReturnTrendRows,
+    purchaseReturnTrendRows,
+    "salesReturn",
+    "purchaseReturn"
+  );
+
   res.json(
     new ApiResponse(200, {
       stats: {
         salesTotal,
         purchaseTotal,
+        salesReturnTotal,
+        purchaseReturnTotal,
         receiptsTotal,
         paymentsTotal,
         expensesTotal,
+        productCount,
+        customerCount,
       },
       revenueTrend: mergeTrend(salesTrendRows, purchaseTrendRows),
+      returnTrend,
       cashFlowTrend,
       expenseTrend,
       businessMix,

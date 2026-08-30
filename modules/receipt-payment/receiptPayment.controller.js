@@ -86,12 +86,12 @@ export const getPayment = asyncHandler(async (req, res) => {
 });
 
 export const deleteReceipt = asyncHandler(async (req, res) => {
-  const data = await svc.deleteVoucher(req.companyId, req.params.id);
+  const data = await svc.deleteVoucher(req.companyId, req.params.id, req.user?.id);
   res.json(new ApiResponse(200, data));
 });
 
 export const deletePayment = asyncHandler(async (req, res) => {
-  const data = await svc.deleteVoucher(req.companyId, req.params.id);
+  const data = await svc.deleteVoucher(req.companyId, req.params.id, req.user?.id);
   res.json(new ApiResponse(200, data));
 });
 

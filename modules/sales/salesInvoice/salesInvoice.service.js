@@ -2,50 +2,14 @@ import SalesInvoice  from "./salesInvoice.model.js";
 import Customer      from "../../masters/customer/customer.model.js";
 import Item          from "../../masters/item/item.model.js";
 import PriceLevel    from "../../masters/priceLevel/priceLevel.model.js";
-import FinancialYear from "../../financialYear/financialYear.model.js";
-import Company       from "../../company/company.model.js";
+import Stock         from "../../stock/stock.model.js";
 import { moveStock } from "../../stock/stock.services.js";
 import ApiError      from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
-
-// ── Generate sales invoice number ─────────────────────────────
-// wholesale → PKS/WH/2026-27/01
-// retail    → PKS/RT/2026-27/01
-const generateSalesInvoiceNo = async (companyId, financialYearId, salesType) => {
-  const [fy, company] = await Promise.all([
-    FinancialYear.findById(financialYearId),
-    Company.findById(companyId).select("code name"),
-  ]);
-  if (!fy) throw new ApiError(404, "Financial year not found");
-  if (!company) throw new ApiError(404, "Company not found");
-
-  const companyCode = company.code?.toUpperCase();
-  if (!companyCode) {
-    throw new ApiError(
-      400,
-      "Company code not set. Set company code to PKS in company settings (PUT /api/companies/:id with { code: \"PKS\" })."
-    );
-  }
-
-  const typeCode = salesType === "retail" ? "RT" : "WH";
-  const prefix = `${companyCode}/${typeCode}/${fy.label}/`;
-
-  const last = await SalesInvoice.findOne(
-    {
-      companyId,
-      financialYearId,
-      salesType,
-      invoiceNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
-    },
-    { invoiceNo: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}01`;
-
-  const lastNo = parseInt(last.invoiceNo.split("/").pop(), 10) || 0;
-  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
-};
+import { postSalesInvoice } from "../../accounting/journal/posting.service.js";
+import { getNextSalesInvoiceNo } from "../../documentNumber/documentNumber.service.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 const customerSnapshotFromCustomer = (customer) => ({
   name: customer.name,
@@ -77,6 +41,7 @@ export const createSalesInvoice = async ({
   customerId,
   items,
   notes,
+  userId,
 }) => {
   const customer = await Customer.findOne({
     _id: customerId,
@@ -106,7 +71,7 @@ export const createSalesInvoice = async ({
     throw new ApiError(400, "One or more items not found");
   }
 
-  const invoiceNo = await generateSalesInvoiceNo(companyId, financialYearId, salesType);
+  const invoiceNo = await getNextSalesInvoiceNo(companyId, financialYearId, salesType);
 
   const SGST_RATE = 9;
   const CGST_RATE = 9;
@@ -206,6 +171,14 @@ export const createSalesInvoice = async ({
     );
 
     for (const row of processedItems) {
+      const stock = await Stock.findOne({
+        companyId,
+        warehouseId,
+        itemId: row.itemId,
+        financialYearId,
+      }).session(session);
+      row.avgCost = stock?.avgCost ?? 0;
+
       await moveStock({
         companyId,
         branchId,
@@ -222,6 +195,19 @@ export const createSalesInvoice = async ({
       }, session);
     }
 
+    await postSalesInvoice(
+      {
+        companyId,
+        branchId,
+        financialYearId,
+        warehouseId,
+        invoice,
+        items: processedItems,
+        userId,
+      },
+      session
+    );
+
     return invoice;
   });
 };
@@ -232,7 +218,8 @@ export const getAllSalesInvoices = async ({
   page = 1, limit = 20, search = "", salesType,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
-  if (search)    filter.invoiceNo = { $regex: search, $options: "i" };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) filter.invoiceNo = regexContains(safeSearch);
   if (salesType) filter.salesType = salesType;
 
   const skip = (page - 1) * limit;

@@ -1,53 +1,76 @@
 import RolePermission from "./rolePermission.model.js";
 import Company from "../company/company.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { getCustomRolePermissions } from "./customRole.service.js";
 import {
-  ALL_VIEW_KEYS,
+  ALL_PERMISSION_KEYS,
   DEFAULT_ROLE_PERMISSIONS,
   MANAGED_ROLES,
+  PERMISSION_ACTIONS,
+  PERMISSION_SECTIONS,
+  ROLE_META,
   SUPER_ADMIN_SETTINGS,
   VIEW_PERMISSIONS,
+  isSystemRole,
 } from "./permissions.constants.js";
-
-const mapToObject = (views) => {
-  if (!views) return {};
-  if (views instanceof Map) return Object.fromEntries(views.entries());
-  return { ...views };
-};
-
-const normalizeViews = (views = {}, fallback = {}) =>
-  Object.fromEntries(
-    ALL_VIEW_KEYS.map((key) => [
-      key,
-      views[key] !== undefined ? Boolean(views[key]) : Boolean(fallback[key]),
-    ])
-  );
+import { normalizePermissions, mapToObject } from "./permissionUtils.js";
 
 export const seedDefaultPermissions = async (companyId) => {
-  const docs = MANAGED_ROLES.map((role) => ({
+  await ensureRolePermissions(companyId);
+};
+
+export const ensureRolePermissions = async (companyId) => {
+  const existing = await RolePermission.find({ companyId }).select("role").lean();
+  const existingRoles = new Set(existing.map((doc) => doc.role));
+  const missing = MANAGED_ROLES.filter((role) => !existingRoles.has(role));
+
+  if (!missing.length) return;
+
+  const docs = missing.map((role) => ({
     companyId,
     role,
-    views: normalizeViews(DEFAULT_ROLE_PERMISSIONS[role]),
+    views: normalizePermissions(DEFAULT_ROLE_PERMISSIONS[role]),
   }));
-  await RolePermission.insertMany(docs);
+
+  await RolePermission.insertMany(docs, { ordered: false }).catch((err) => {
+    if (err?.code !== 11000) throw err;
+  });
 };
 
 export const getEffectivePermissions = async (companyId, role) => {
   if (role === "super_admin") {
     return {
-      ...Object.fromEntries(ALL_VIEW_KEYS.map((key) => [key, true])),
+      ...Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true])),
       ...SUPER_ADMIN_SETTINGS,
       role,
       isSuperAdmin: true,
     };
   }
 
-  const doc = await RolePermission.findOne({ companyId, role }).lean();
-  const fallback = DEFAULT_ROLE_PERMISSIONS[role] || {};
-  const views = normalizeViews(mapToObject(doc?.views), fallback);
+  if (isSystemRole(role)) {
+    const doc = await RolePermission.findOne({ companyId, role }).lean();
+    const fallback = DEFAULT_ROLE_PERMISSIONS[role] || {};
+    const views = normalizePermissions(mapToObject(doc?.views), fallback);
+
+    return {
+      ...views,
+      role,
+      isSuperAdmin: false,
+    };
+  }
+
+  const customViews = await getCustomRolePermissions(companyId, role);
+  if (customViews) {
+    return {
+      ...customViews,
+      role,
+      isSuperAdmin: false,
+      isCustomRole: true,
+    };
+  }
 
   return {
-    ...views,
+    ...normalizePermissions({}, DEFAULT_ROLE_PERMISSIONS.viewer),
     role,
     isSuperAdmin: false,
   };
@@ -55,6 +78,9 @@ export const getEffectivePermissions = async (companyId, role) => {
 
 export const getPermissionCatalog = () => ({
   roles: MANAGED_ROLES,
+  roleMeta: ROLE_META,
+  actions: PERMISSION_ACTIONS,
+  sections: PERMISSION_SECTIONS,
   permissions: VIEW_PERMISSIONS,
 });
 
@@ -64,10 +90,7 @@ export const getAllRolePermissions = async (companyId) => {
     MANAGED_ROLES.map((role) => {
       const doc = docs.find((d) => d.role === role);
       const fallback = DEFAULT_ROLE_PERMISSIONS[role] || {};
-      return [
-        role,
-        normalizeViews(mapToObject(doc?.views), fallback),
-      ];
+      return [role, normalizePermissions(mapToObject(doc?.views), fallback)];
     })
   );
 
@@ -82,7 +105,7 @@ export const updateRolePermissions = async (companyId, role, views) => {
     throw new ApiError(400, "Invalid role");
   }
 
-  const normalized = normalizeViews(views);
+  const normalized = normalizePermissions(views, DEFAULT_ROLE_PERMISSIONS[role] || {});
   const doc = await RolePermission.findOneAndUpdate(
     { companyId, role },
     { views: normalized },
@@ -91,7 +114,7 @@ export const updateRolePermissions = async (companyId, role, views) => {
 
   return {
     role,
-    views: normalizeViews(mapToObject(doc.views)),
+    views: normalizePermissions(mapToObject(doc.views)),
   };
 };
 
@@ -137,5 +160,18 @@ export const updateCompanySettings = async (companyId, payload) => {
 export const canView = (permissions, key) => {
   if (!permissions) return false;
   if (permissions.isSuperAdmin) return true;
+  const viewKey = actionKey(key, "view");
+  if (permissions[viewKey] !== undefined) return Boolean(permissions[viewKey]);
   return Boolean(permissions[key]);
+};
+
+export const canAction = (permissions, key, action) => {
+  if (!permissions) return false;
+  if (permissions.isSuperAdmin) return true;
+  const fullKey = actionKey(key, action);
+  if (permissions[fullKey] !== undefined) return Boolean(permissions[fullKey]);
+  if (action === "view" && permissions[key] !== undefined) {
+    return Boolean(permissions[key]);
+  }
+  return false;
 };

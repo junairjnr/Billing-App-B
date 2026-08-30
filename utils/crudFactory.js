@@ -78,6 +78,10 @@
 import asyncHandler from "./asyncHandler.js";
 import ApiResponse from "./ApiResponse.js";
 import ApiError from "./ApiError.js";
+import { regexContains } from "./escapeRegex.js";
+import { optionalSearchString } from "./sanitizeInput.js";
+
+const ALLOWED_SORT_FIELDS = new Set(["createdAt", "updatedAt", "name", "code"]);
 
 const crudFactory = (Model, options = {}) => {
   const {
@@ -116,19 +120,23 @@ const crudFactory = (Model, options = {}) => {
       if (isActive !== undefined) filter.isActive = isActive === "true";
 
       if (search) {
-        if (hasTextIndex) {
-          filter.$text = { $search: search };
-        } else {
-          filter.name = { $regex: search, $options: "i" };
+        const safeSearch = optionalSearchString(search);
+        if (safeSearch) {
+          if (hasTextIndex) {
+            filter.$text = { $search: safeSearch };
+          } else {
+            filter.name = regexContains(safeSearch);
+          }
         }
       }
 
       const skip = (Number(page) - 1) * Number(limit);
       const sortOrder = order === "asc" ? 1 : -1;
+      const safeSortBy = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : "createdAt";
 
       let query = Model.find(filter)
         .select(selectFields)
-        .sort({ [sortBy]: sortOrder })
+        .sort({ [safeSortBy]: sortOrder })
         .skip(skip)
         .limit(Number(limit))
         .lean();

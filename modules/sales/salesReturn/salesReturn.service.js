@@ -1,10 +1,16 @@
+import mongoose from "mongoose";
 import SalesReturn from "./salesReturn.model.js";
 import SalesInvoice from "../salesInvoice/salesInvoice.model.js";
-import FinancialYear from "../../financialYear/financialYear.model.js";
-import Company from "../../company/company.model.js";
+import Customer from "../../masters/customer/customer.model.js";
+import Item from "../../masters/item/item.model.js";
+import PriceLevel from "../../masters/priceLevel/priceLevel.model.js";
+import Warehouse from "../../warehouse/warehouse.model.js";
 import { moveStock } from "../../stock/stock.services.js";
 import ApiError from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
+import { getNextSalesReturnNo } from "../../documentNumber/documentNumber.service.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -17,39 +23,6 @@ const recalcPaymentStatus = (invoice) => {
   if (paid <= 0) invoice.paymentStatus = "pending";
   else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
   else invoice.paymentStatus = "partial";
-};
-
-const generateSalesReturnNo = async (companyId, financialYearId, salesType) => {
-  const [fy, company] = await Promise.all([
-    FinancialYear.findById(financialYearId),
-    Company.findById(companyId).select("code name"),
-  ]);
-  if (!fy) throw new ApiError(404, "Financial year not found");
-  if (!company) throw new ApiError(404, "Company not found");
-
-  const companyCode = company.code?.toUpperCase();
-  if (!companyCode) {
-    throw new ApiError(400, "Company code not set. Set company code before creating returns.");
-  }
-
-  const typeCode = salesType === "retail" ? "SR-RT" : "SR-WH";
-  const prefix = `${companyCode}/${typeCode}/${fy.label}/`;
-
-  const last = await SalesReturn.findOne(
-    {
-      companyId,
-      financialYearId,
-      salesType,
-      returnNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
-    },
-    { returnNo: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}01`;
-
-  const lastNo = parseInt(last.returnNo.split("/").pop(), 10) || 0;
-  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
 const getReturnedQtyByLine = async (salesInvoiceId) => {
@@ -154,15 +127,217 @@ export const getReturnableItems = async (companyId, salesInvoiceId) => {
   };
 };
 
-export const createSalesReturn = async ({
+const customerSnapshotFromCustomer = (customer) => ({
+  name: customer.name,
+  gstin: customer.gstin || "",
+  place: customer.address?.place || "",
+  state: customer.address?.state || "",
+  stateCode: customer.address?.stateCode || "",
+  address: [customer.address?.line1, customer.address?.place, customer.address?.city]
+    .filter(Boolean)
+    .join(", "),
+});
+
+const SGST_RATE = 9;
+const CGST_RATE = 9;
+
+const buildManualSalesReturnLine = (dbItem, priceLevel, row, slNo) => {
+  const qty = Number(row.qty);
+  const rate = Number(row.rate);
+  const discount = Number(row.discount) || 0;
+  const grossAmt = Number((rate * qty).toFixed(2));
+  const discountAmt = Number((grossAmt * discount / 100).toFixed(2));
+  const taxableValue = Number((grossAmt - discountAmt).toFixed(2));
+  const sgst = Number(((taxableValue * SGST_RATE) / 100).toFixed(2));
+  const cgst = Number(((taxableValue * CGST_RATE) / 100).toFixed(2));
+  const total = Number((taxableValue + sgst + cgst).toFixed(2));
+
+  return {
+    slNo,
+    invoiceItemId: new mongoose.Types.ObjectId(),
+    itemId: dbItem._id,
+    hsn: row.hsn || dbItem.hsn || "",
+    uomId: dbItem.uomId?._id ?? dbItem.uomId,
+    baseRate: dbItem.price,
+    priceLevelPct: priceLevel.taxPercent,
+    rate,
+    qty,
+    discount,
+    discountAmt,
+    taxableValue,
+    sgst,
+    cgst,
+    total,
+  };
+};
+
+const createManualSalesReturn = async ({
   companyId,
   branchId,
   financialYearId,
-  salesInvoiceId,
   returnDate,
+  customerId,
+  warehouseId,
+  salesType,
+  priceLevelId,
+  referenceInvoiceNo,
   items,
   notes,
 }) => {
+  if (!customerId) throw new ApiError(400, "Customer is required for manual return");
+  if (!warehouseId) throw new ApiError(400, "Warehouse is required for manual return");
+  if (!salesType) throw new ApiError(400, "Sales type is required for manual return");
+  if (!priceLevelId) throw new ApiError(400, "Price level is required for manual return");
+  if (!items?.length) throw new ApiError(400, "At least one return item is required");
+
+  const [customer, warehouse, priceLevel] = await Promise.all([
+    Customer.findOne({ _id: customerId, companyId, type: "sales", isActive: true }),
+    Warehouse.findOne({ _id: warehouseId, companyId, isActive: true }),
+    PriceLevel.findOne({ _id: priceLevelId, companyId, isActive: true }),
+  ]);
+
+  if (!customer) throw new ApiError(404, "Customer not found");
+  if (!warehouse) throw new ApiError(404, "Warehouse not found");
+  if (!priceLevel) throw new ApiError(404, "Price level not found");
+
+  const itemIds = [...new Set(items.map((row) => String(row.itemId)).filter(Boolean))];
+  const dbItems = await Item.find({ _id: { $in: itemIds }, companyId, isActive: true }).populate(
+    "uomId",
+    "name shortCode"
+  );
+  const itemMap = Object.fromEntries(dbItems.map((item) => [String(item._id), item]));
+
+  const processedItems = [];
+  let netAmount = 0;
+  let totalSGST = 0;
+  let totalCGST = 0;
+
+  for (const row of items) {
+    const qty = Number(row.qty);
+    const rate = Number(row.rate);
+    if (!row.itemId || !qty || qty <= 0) continue;
+    if (!rate || rate <= 0) {
+      throw new ApiError(400, "Rate is required for each manual return line");
+    }
+
+    const dbItem = itemMap[String(row.itemId)];
+    if (!dbItem) throw new ApiError(404, `Item not found: ${row.itemId}`);
+
+    const built = buildManualSalesReturnLine(
+      dbItem,
+      priceLevel,
+      row,
+      processedItems.length + 1
+    );
+    processedItems.push(built);
+    netAmount += built.taxableValue;
+    totalSGST += built.sgst;
+    totalCGST += built.cgst;
+  }
+
+  if (!processedItems.length) {
+    throw new ApiError(400, "No valid return quantities provided");
+  }
+
+  const totalTax = Number((totalSGST + totalCGST).toFixed(2));
+  const total = Number((netAmount + totalTax).toFixed(2));
+  const grandTotal = Math.round(total);
+  const roundOff = Number((grandTotal - total).toFixed(2));
+  const returnNo = await getNextSalesReturnNo(companyId, financialYearId, salesType);
+  const originalInvoiceNo = referenceInvoiceNo?.trim() || "MANUAL";
+
+  return withTransaction(async (session) => {
+    const [salesReturn] = await SalesReturn.create(
+      [
+        {
+          companyId,
+          branchId,
+          financialYearId,
+          warehouseId,
+          returnNo,
+          returnDate: new Date(returnDate),
+          returnMode: "manual",
+          referenceInvoiceNo: referenceInvoiceNo?.trim() || "",
+          originalInvoiceNo,
+          salesType,
+          priceLevelId,
+          priceLevelSnapshot: { name: priceLevel.name, taxPercent: priceLevel.taxPercent },
+          customerId,
+          customerSnapshot: customerSnapshotFromCustomer(customer),
+          items: processedItems,
+          netAmount: Number(netAmount.toFixed(2)),
+          totalSGST: Number(totalSGST.toFixed(2)),
+          totalCGST: Number(totalCGST.toFixed(2)),
+          totalTax,
+          total,
+          roundOff,
+          grandTotal,
+          status: "confirmed",
+          notes,
+        },
+      ],
+      sessionOpts(session)
+    );
+
+    for (const row of processedItems) {
+      await moveStock(
+        {
+          companyId,
+          branchId,
+          financialYearId,
+          warehouseId,
+          itemId: row.itemId,
+          uomId: row.uomId,
+          movementType: "sales_return",
+          qty: row.qty,
+          rate: row.rate,
+          referenceType: "SalesReturn",
+          referenceId: salesReturn._id,
+          referenceNo: returnNo,
+        },
+        session
+      );
+    }
+
+    return salesReturn;
+  });
+};
+
+export const createSalesReturn = async (payload) => {
+  const {
+    companyId,
+    branchId,
+    financialYearId,
+    salesInvoiceId,
+    returnDate,
+    items,
+    notes,
+    returnMode,
+    customerId,
+    warehouseId,
+    salesType,
+    priceLevelId,
+    referenceInvoiceNo,
+  } = payload;
+
+  const isManual = returnMode === "manual" || !salesInvoiceId;
+
+  if (isManual) {
+    return createManualSalesReturn({
+      companyId,
+      branchId,
+      financialYearId,
+      returnDate,
+      customerId,
+      warehouseId,
+      salesType,
+      priceLevelId,
+      referenceInvoiceNo,
+      items,
+      notes,
+    });
+  }
+
   const invoice = await SalesInvoice.findOne({
     _id: salesInvoiceId,
     companyId,
@@ -216,7 +391,7 @@ export const createSalesReturn = async ({
   const total = Number((netAmount + totalTax).toFixed(2));
   const grandTotal = Math.round(total);
   const roundOff = Number((grandTotal - total).toFixed(2));
-  const returnNo = await generateSalesReturnNo(companyId, financialYearId, invoice.salesType);
+  const returnNo = await getNextSalesReturnNo(companyId, financialYearId, invoice.salesType);
 
   return withTransaction(async (session) => {
     const [salesReturn] = await SalesReturn.create(
@@ -227,6 +402,7 @@ export const createSalesReturn = async ({
         warehouseId: invoice.warehouseId,
         returnNo,
         returnDate: new Date(returnDate),
+        returnMode: "invoice",
         salesInvoiceId: invoice._id,
         originalInvoiceNo: invoice.invoiceNo,
         salesType: invoice.salesType,
@@ -287,7 +463,8 @@ export const getAllSalesReturns = async ({
   salesInvoiceId,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
-  if (search) filter.returnNo = { $regex: search, $options: "i" };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) filter.returnNo = regexContains(safeSearch);
   if (salesType) filter.salesType = salesType;
   if (salesInvoiceId) filter.salesInvoiceId = salesInvoiceId;
 
@@ -298,7 +475,7 @@ export const getAllSalesReturns = async ({
       .populate("warehouseId", "name code")
       .populate("salesInvoiceId", "invoiceNo invoiceDate")
       .select(
-        "returnNo returnDate salesInvoiceId originalInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal status createdAt"
+        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal status createdAt"
       )
       .sort({ returnDate: -1 })
       .skip(skip)

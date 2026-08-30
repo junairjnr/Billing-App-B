@@ -9,11 +9,14 @@ import {
   getCurrentFYStartYear,
 } from "../financialYear/financialYear.services.js";
 import financialYearModel from "../financialYear/financialYear.model.js";
-import { seedDefaultPermissions, getEffectivePermissions } from "../settings/settings.service.js";
+import { seedDefaultPermissions, getEffectivePermissions, ensureRolePermissions } from "../settings/settings.service.js";
+import { seedDefaultChartOfAccounts } from "../accounting/chartOfAccount/chartOfAccount.service.js";
+import { requireString } from "../../utils/sanitizeInput.js";
 
 const generateToken = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+    algorithm: "HS256",
   });
 
 // Register = Create Company + Admin User (atomic)
@@ -28,16 +31,7 @@ const register = async ({
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    console.log(
-      "Checking if email already exists:",
-      email,
-      companyName,
-      companyEmail,
-      name,
-      password
-    );
-
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: requireString(email, "email", { maxLength: 254 }) });
     if (existingUser) throw new ApiError(409, "Email already registered");
 
     const [company] = await Company.create(
@@ -82,6 +76,12 @@ const register = async ({
     }
 
     try {
+      await seedDefaultChartOfAccounts(company._id);
+    } catch (coaErr) {
+      console.warn("Default COA seed warning:", coaErr.message);
+    }
+
+    try {
       const fyStartYear = getCurrentFYStartYear();
       await createFinancialYear(company._id, fyStartYear);
     } catch (fyErr) {
@@ -98,6 +98,10 @@ const register = async ({
 
     const permissions = await getEffectivePermissions(company._id, user.role);
 
+    const activeFY = await financialYearModel
+      .findOne({ companyId: company._id, isActive: true })
+      .select("_id label startDate endDate");
+
     return {
       token,
       user: {
@@ -107,6 +111,7 @@ const register = async ({
         role: user.role,
         companyId: company._id,
         branchId: branch._id,
+        activeFY: activeFY?._id,
         permissions,
       },
       company,
@@ -121,7 +126,12 @@ const register = async ({
 };
 
 const login = async ({ email, password }) => {
-  const user = await User.findOne({ email })
+  const safeEmail = requireString(email, "email", { maxLength: 254 });
+  if (typeof password !== "string" || !password) {
+    throw new ApiError(400, "Password is required");
+  }
+
+  const user = await User.findOne({ email: safeEmail })
     .select("+password")
     .populate("branchId", "name code");
   if (!user || !(await user.comparePassword(password)))
@@ -144,6 +154,18 @@ const login = async ({ email, password }) => {
   });
 
   const permissions = await getEffectivePermissions(user.companyId, user.role);
+
+  try {
+    await ensureRolePermissions(user.companyId);
+  } catch (permErr) {
+    console.warn("Role permissions seed warning:", permErr.message);
+  }
+
+  try {
+    await seedDefaultChartOfAccounts(user.companyId);
+  } catch (coaErr) {
+    console.warn("Default COA seed warning:", coaErr.message);
+  }
 
   return {
     token,

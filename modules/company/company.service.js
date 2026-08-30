@@ -2,10 +2,8 @@ import companyModel from "./company.model.js";
 import ApiError from "../../utils/ApiError.js";
 
 const getAllCompanies = async () => {
-  const companies = await companyModel.find();
-  console.log("Fetched companies:", companies);
-  if(!companies || companies.length === 0) {
-    console.warn("No companies found in the database.");
+  const companies = await companyModel.find().select("-__v");
+  if (!companies || companies.length === 0) {
     return [];
   }
   return companies;

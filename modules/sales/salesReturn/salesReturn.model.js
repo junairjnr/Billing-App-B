@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const salesReturnItemSchema = new mongoose.Schema(
   {
     slNo: { type: Number, required: true },
-    invoiceItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    invoiceItemId: { type: mongoose.Schema.Types.ObjectId },
     itemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Item",
@@ -51,12 +51,18 @@ const salesReturnSchema = new mongoose.Schema(
     returnNo: { type: String, required: true },
     returnDate: { type: Date, required: true },
 
+    returnMode: {
+      type: String,
+      enum: ["invoice", "manual"],
+      default: "invoice",
+    },
+
     salesInvoiceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SalesInvoice",
-      required: true,
     },
-    originalInvoiceNo: { type: String, required: true },
+    originalInvoiceNo: { type: String, trim: true, default: "" },
+    referenceInvoiceNo: { type: String, trim: true },
     salesType: { type: String, enum: ["retail", "wholesale"], required: true },
 
     priceLevelId: {
