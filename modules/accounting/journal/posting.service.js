@@ -56,29 +56,38 @@ export const postSalesInvoice = async (
   const existing = await getJournalByReference(companyId, "SalesInvoice", invoice._id);
   if (existing) return existing;
 
-  const [ar, sales, gst, cogs, inventory] = await Promise.all([
+  const [ar, sales, gst, cogs, inventory, cash, expenseAcc] = await Promise.all([
     getAccountByCode(companyId, COA.ACCOUNTS_RECEIVABLE, session),
     getAccountByCode(companyId, COA.SALES, session),
     getAccountByCode(companyId, COA.GST_PAYABLE, session),
     getAccountByCode(companyId, COA.COGS, session),
     getAccountByCode(companyId, COA.INVENTORY, session),
+    getAccountByCode(companyId, COA.CASH, session),
+    getAccountByCode(companyId, COA.EXPENSE, session),
   ]);
 
   const lines = [];
   const grandTotal = round2(invoice.grandTotal);
+  const cashDiscountAmt = round2(invoice.cashDiscountAmt || 0);
   const netAmount = round2(invoice.netAmount);
   const totalTax = round2(invoice.totalTax);
-  const roundOff = round2(invoice.roundOff ?? grandTotal - netAmount - totalTax);
+  const billTotal = round2(invoice.billTotal ?? grandTotal + cashDiscountAmt);
+  const roundOff = round2(invoice.roundOff ?? billTotal - netAmount - totalTax);
+  const isCashSale = invoice.saleMode === "cash";
+  const debitAccount = isCashSale ? cash : ar;
 
   lines.push(
-    line(ar, {
+    line(debitAccount, {
       debit: grandTotal,
-      customerId: invoice.customerId,
-      narration: `Sales ${invoice.invoiceNo}`,
+      ...(isCashSale ? {} : { customerId: invoice.customerId }),
+      narration: `Sales ${invoice.invoiceNo}${isCashSale ? " (Cash)" : ""}`,
     }),
     line(sales, { credit: netAmount, narration: `Sales ${invoice.invoiceNo}` }),
-    line(gst, { credit: totalTax, narration: `GST on ${invoice.invoiceNo}` })
   );
+
+  if (totalTax > 0) {
+    lines.push(line(gst, { credit: totalTax, narration: `GST on ${invoice.invoiceNo}` }));
+  }
 
   await appendRoundOffLine(
     lines,
@@ -87,6 +96,15 @@ export const postSalesInvoice = async (
     `Round off ${invoice.invoiceNo}`,
     session
   );
+
+  if (cashDiscountAmt > 0) {
+    lines.push(
+      line(expenseAcc, {
+        debit: cashDiscountAmt,
+        narration: `Cash discount ${invoice.invoiceNo}`,
+      })
+    );
+  }
 
   let totalCogs = 0;
   for (const row of items) {

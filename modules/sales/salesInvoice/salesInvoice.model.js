@@ -264,6 +264,7 @@ const salesItemSchema = new mongoose.Schema(
     discount: { type: Number, default: 0, min: 0, max: 100 },
     discountAmt: { type: Number, default: 0 },
     taxableValue: { type: Number, required: true },
+    taxPercent: { type: Number, default: 0, min: 0, max: 100 },
     sgst: { type: Number, default: 0 },
     cgst: { type: Number, default: 0 },
     total: { type: Number, required: true },
@@ -329,6 +330,12 @@ const salesInvoiceSchema = new mongoose.Schema(
     total: { type: Number, default: 0 },
     roundOff: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
+
+    lineNetAmount: { type: Number, default: 0 },
+    cashDiscountPercent: { type: Number, default: 0, min: 0, max: 100 },
+    cashDiscountAmt: { type: Number, default: 0 },
+    billTotal: { type: Number, default: 0 },
+    saleMode: { type: String, enum: ["credit", "cash"], default: "cash" },
 
     returnedAmount: { type: Number, default: 0 },
 

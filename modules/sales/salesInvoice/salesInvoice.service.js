@@ -29,6 +29,49 @@ const resolveCustomerSnapshot = (invoice) => {
   return customer ? customerSnapshotFromCustomer(customer) : invoice.customerSnapshot ?? {};
 };
 
+const round2 = (n) => Number(Number(n).toFixed(2));
+
+const computeInvoiceTotals = ({
+  lineNetAmount,
+  totalSGST,
+  totalCGST,
+  cashDiscountPercent = 0,
+  cashDiscountAmt: cashDiscountInput = 0,
+}) => {
+  const netAmount = round2(lineNetAmount);
+  const totalTax = round2(totalSGST + totalCGST);
+  const total = round2(netAmount + totalTax);
+  const billTotal = Math.round(total);
+  const roundOff = round2(billTotal - total);
+
+  const cashDiscPct = Number(cashDiscountPercent) || 0;
+  const manualCashDisc = round2(cashDiscountInput);
+  let cashDiscountAmt =
+    manualCashDisc > 0
+      ? manualCashDisc
+      : round2(billTotal * cashDiscPct / 100);
+
+  if (cashDiscountAmt > billTotal) {
+    cashDiscountAmt = billTotal;
+  }
+
+  const grandTotal = round2(billTotal - cashDiscountAmt);
+
+  return {
+    lineNetAmount: netAmount,
+    netAmount,
+    totalSGST: round2(totalSGST),
+    totalCGST: round2(totalCGST),
+    totalTax,
+    total,
+    roundOff,
+    billTotal,
+    cashDiscountPercent: cashDiscPct,
+    cashDiscountAmt,
+    grandTotal,
+  };
+};
+
 // ── Create Sales Invoice ──────────────────────────────────────
 export const createSalesInvoice = async ({
   companyId,
@@ -41,6 +84,9 @@ export const createSalesInvoice = async ({
   customerId,
   items,
   notes,
+  cashDiscountPercent = 0,
+  cashDiscountAmt = 0,
+  saleMode = "cash",
   userId,
 }) => {
   const customer = await Customer.findOne({
@@ -73,10 +119,7 @@ export const createSalesInvoice = async ({
 
   const invoiceNo = await getNextSalesInvoiceNo(companyId, financialYearId, salesType);
 
-  const SGST_RATE = 9;
-  const CGST_RATE = 9;
-
-  let netAmount = 0;
+  let lineNetAmount = 0;
   let totalSGST = 0;
   let totalCGST = 0;
 
@@ -86,24 +129,26 @@ export const createSalesInvoice = async ({
     const baseRate = dbItem.price;
     const priceLevelPct = priceLevel.taxPercent;
     const rate = Number((baseRate + (baseRate * priceLevelPct / 100)).toFixed(2));
+    const taxPercent = Number(dbItem.taxPercent) || 0;
+    const halfRate = taxPercent / 2;
 
     const discount = Number(row.discount) || 0;
     const grossAmt = Number((rate * row.qty).toFixed(2));
     const discountAmt = Number((grossAmt * discount / 100).toFixed(2));
     const taxableValue = Number((grossAmt - discountAmt).toFixed(2));
 
-    const sgst = Number((taxableValue * SGST_RATE / 100).toFixed(2));
-    const cgst = Number((taxableValue * CGST_RATE / 100).toFixed(2));
+    const sgst = Number((taxableValue * halfRate / 100).toFixed(2));
+    const cgst = Number((taxableValue * halfRate / 100).toFixed(2));
     const total = Number((taxableValue + sgst + cgst).toFixed(2));
 
-    netAmount += taxableValue;
+    lineNetAmount += taxableValue;
     totalSGST += sgst;
     totalCGST += cgst;
 
     return {
       slNo: index + 1,
       itemId: row.itemId,
-      hsn: row.hsn || dbItem.hsn || "",
+      hsn: row.hsn || dbItem.hsnCode || dbItem.hsn || "",
       uomId: dbItem.uomId._id,
       baseRate,
       priceLevelPct,
@@ -112,16 +157,25 @@ export const createSalesInvoice = async ({
       discount,
       discountAmt,
       taxableValue,
+      taxPercent,
       sgst,
       cgst,
       total,
     };
   });
 
-  const totalTax = Number((totalSGST + totalCGST).toFixed(2));
-  const total = Number((netAmount + totalTax).toFixed(2));
-  const grandTotal = Math.round(total);
-  const roundOff = Number((grandTotal - total).toFixed(2));
+  const totals = computeInvoiceTotals({
+    lineNetAmount,
+    totalSGST,
+    totalCGST,
+    cashDiscountPercent,
+    cashDiscountAmt,
+  });
+
+  const isCashSale = saleMode !== "credit";
+  const paidAmount = isCashSale ? totals.grandTotal : 0;
+  const balanceAmount = isCashSale ? 0 : totals.grandTotal;
+  const paymentStatus = isCashSale ? "paid" : "pending";
 
   const customerSnapshot = {
     name: customer.name,
@@ -154,16 +208,21 @@ export const createSalesInvoice = async ({
         customerId,
         customerSnapshot,
         items: processedItems,
-        netAmount: Number(netAmount.toFixed(2)),
-        totalSGST: Number(totalSGST.toFixed(2)),
-        totalCGST: Number(totalCGST.toFixed(2)),
-        totalTax,
-        total,
-        roundOff,
-        grandTotal,
-        paidAmount: 0,
-        balanceAmount: grandTotal,
-        paymentStatus: "pending",
+        lineNetAmount: totals.lineNetAmount,
+        cashDiscountPercent: totals.cashDiscountPercent,
+        cashDiscountAmt: totals.cashDiscountAmt,
+        billTotal: totals.billTotal,
+        saleMode: isCashSale ? "cash" : "credit",
+        netAmount: totals.netAmount,
+        totalSGST: totals.totalSGST,
+        totalCGST: totals.totalCGST,
+        totalTax: totals.totalTax,
+        total: totals.total,
+        roundOff: totals.roundOff,
+        grandTotal: totals.grandTotal,
+        paidAmount,
+        balanceAmount,
+        paymentStatus,
         status: "confirmed",
         notes,
       }],
@@ -228,7 +287,7 @@ export const getAllSalesInvoices = async ({
       .populate("customerId",   "name phone")
       .populate("warehouseId",  "name code")
       .populate("priceLevelId", "name taxPercent")
-      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal paidAmount balanceAmount paymentStatus status createdAt")
+      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal paidAmount balanceAmount paymentStatus saleMode status createdAt")
       .sort({ invoiceDate: -1 })
       .skip(skip).limit(limit).lean(),
     SalesInvoice.countDocuments(filter),

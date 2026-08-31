@@ -1,13 +1,76 @@
 import ExcelJS from "exceljs";
 
+const BORDER_COLOR = "FFCCCCCC";
+
+const cellBorder = {
+  top: { style: "thin", color: { argb: BORDER_COLOR } },
+  left: { style: "thin", color: { argb: BORDER_COLOR } },
+  bottom: { style: "thin", color: { argb: BORDER_COLOR } },
+  right: { style: "thin", color: { argb: BORDER_COLOR } },
+};
+
+const NUMERIC_KEY_PATTERN =
+  /amount|total|balance|debit|credit|price|qty|rate|tax|percent|slno|round/i;
+
+const isNumericColumn = (col, value) => {
+  if (col.key === "slno" || col.virtual) return true;
+  if (typeof value === "number") return true;
+  return NUMERIC_KEY_PATTERN.test(col.key);
+};
+
+const styleSheet = (sheet, columns) => {
+  const lastRow = sheet.rowCount;
+  const columnCount = columns.length;
+
+  for (let rowIndex = 1; rowIndex <= lastRow; rowIndex += 1) {
+    const row = sheet.getRow(rowIndex);
+    const isHeader = rowIndex === 1;
+
+    for (let colIndex = 1; colIndex <= columnCount; colIndex += 1) {
+      const cell = row.getCell(colIndex);
+      cell.border = cellBorder;
+
+      if (isHeader) {
+        cell.alignment = {
+          vertical: "middle",
+          horizontal: "center",
+          wrapText: true,
+        };
+        continue;
+      }
+
+      const col = columns[colIndex - 1];
+      const numeric = isNumericColumn(col, cell.value);
+
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: numeric ? "right" : "left",
+        wrapText: true,
+      };
+
+      if (numeric && typeof cell.value === "number") {
+        cell.numFmt = "#,##0.00";
+      }
+    }
+
+    row.height = isHeader ? 22 : 18;
+    row.commit();
+  }
+
+  sheet.views = [{ state: "frozen", ySplit: 1, activeCell: "A2" }];
+};
+
 export const buildWorkbook = async (rows, columns, sheetName = "Report") => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sheetName);
 
-  // Use array-based rows so Excel only contains exactly the selected columns.
-  // Keyed addRow() can leave trailing empty columns in the sheet grid.
+  sheet.columns = columns.map((col) => ({
+    key: col.key,
+    width: col.width || Math.max(String(col.header).length + 4, 14),
+  }));
+
   const headerRow = sheet.addRow(columns.map((col) => col.header));
-  headerRow.font = { bold: true };
+  headerRow.font = { bold: true, size: 11 };
   headerRow.fill = {
     type: "pattern",
     pattern: "solid",
@@ -23,9 +86,7 @@ export const buildWorkbook = async (rows, columns, sheetName = "Report") => {
     );
   }
 
-  columns.forEach((col, index) => {
-    sheet.getColumn(index + 1).width = col.width || Math.max(col.header.length + 4, 14);
-  });
+  styleSheet(sheet, columns);
 
   return workbook.xlsx.writeBuffer();
 };

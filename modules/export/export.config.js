@@ -56,6 +56,7 @@ export const EXPORT_REPORTS = {
       { key: "invoiceDate", header: "Date", default: true, get: (r) => fmtDate(r.invoiceDate) },
       { key: "customer", header: "Customer", default: true, get: (r) => r.customerSnapshot?.name || "" },
       { key: "salesType", header: "Type", default: true, get: (r) => r.salesType || "" },
+      { key: "saleMode", header: "Sale Mode", default: true, get: (r) => r.saleMode || "cash" },
       { key: "grandTotal", header: "Total", default: true, get: (r) => r.grandTotal ?? 0 },
       { key: "balanceAmount", header: "Balance", default: true, get: (r) => r.balanceAmount ?? 0 },
       { key: "paymentStatus", header: "Status", default: true, get: (r) => r.paymentStatus || "" },
