@@ -267,6 +267,7 @@ const salesItemSchema = new mongoose.Schema(
     taxPercent: { type: Number, default: 0, min: 0, max: 100 },
     sgst: { type: Number, default: 0 },
     cgst: { type: Number, default: 0 },
+    igst: { type: Number, default: 0 },
     total: { type: Number, required: true },
   },
   { _id: true }
@@ -321,11 +322,16 @@ const salesInvoiceSchema = new mongoose.Schema(
       address: String,
     },
 
+    supplierStateCode: { type: String, trim: true },
+    placeOfSupplyStateCode: { type: String, trim: true },
+    gstSupplyType: { type: String, enum: ["intra", "inter"], default: "intra" },
+
     items: [salesItemSchema],
 
     netAmount: { type: Number, default: 0 },
     totalSGST: { type: Number, default: 0 },
     totalCGST: { type: Number, default: 0 },
+    totalIGST: { type: Number, default: 0 },
     totalTax: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
     roundOff: { type: Number, default: 0 },

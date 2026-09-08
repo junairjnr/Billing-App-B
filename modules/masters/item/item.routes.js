@@ -5,7 +5,7 @@ import itemModel from "./item.model.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
-import { assertUniqueItemName } from "./item.service.js";
+import { assertUniqueItemName, normalizeItemRates } from "./item.service.js";
 
 const router = express.Router();
 
@@ -25,7 +25,7 @@ const create = asyncHandler(async (req, res) => {
 
   try {
     const doc = await itemModel.create({
-      ...req.body,
+      ...normalizeItemRates(req.body),
       companyId: req.companyId,
     });
     res.status(201).json(new ApiResponse(201, doc, "Created successfully"));
@@ -56,7 +56,7 @@ const update = asyncHandler(async (req, res) => {
     const doc = await itemModel
       .findOneAndUpdate(
         { _id: req.params.id, companyId: req.companyId },
-        { $set: req.body },
+        { $set: normalizeItemRates(req.body) },
         { new: true, runValidators: true }
       )
       .select("name code uomId categoryId hsnCode price taxPercent description isActive createdAt")

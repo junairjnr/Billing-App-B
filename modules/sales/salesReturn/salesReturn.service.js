@@ -158,7 +158,7 @@ const buildManualSalesReturnLine = (dbItem, priceLevel, row, slNo) => {
     itemId: dbItem._id,
     hsn: row.hsn || dbItem.hsn || "",
     uomId: dbItem.uomId?._id ?? dbItem.uomId,
-    baseRate: dbItem.price,
+    baseRate: Number(dbItem.price) || Number(row.baseRate) || 0,
     priceLevelPct: priceLevel.taxPercent,
     rate,
     qty,

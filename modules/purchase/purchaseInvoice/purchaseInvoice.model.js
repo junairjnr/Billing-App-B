@@ -50,7 +50,7 @@ const purchaseInvoiceSchema = new mongoose.Schema(
     },
 
     // ── Invoice identity ────────────────────────────────────
-    invoiceNo: { type: String, required: true }, // PINV-0001 (our number)
+    invoiceNo: { type: String, required: true }, // PKS/PI/2026-27/01 (our number)
     vendorInvoiceNo: { type: String, required: true, trim: true }, // supplier's invoice number
     purchaseDate: { type: Date, required: true },
 

@@ -42,8 +42,19 @@ export const createPayment = asyncHandler(async (req, res) => {
 });
 
 export const listReceipts = asyncHandler(async (req, res) => {
-  const { partyId, customerId, paymentMode, dateFrom, dateTo, search, page, limit } =
+  const { partyId, customerId, paymentMode, dateFrom, dateTo, search, page, limit, invoiceId } =
     req.query;
+
+  if (invoiceId) {
+    const data = await svc.getVouchersByInvoice({
+      companyId: req.companyId,
+      invoiceId,
+      invoiceType: "sales",
+      voucherType: "receipt",
+    });
+    return res.json(new ApiResponse(200, data));
+  }
+
   const data = await svc.getAllVouchers({
     ...ctx(req),
     voucherType: "receipt",
@@ -59,8 +70,19 @@ export const listReceipts = asyncHandler(async (req, res) => {
 });
 
 export const listPayments = asyncHandler(async (req, res) => {
-  const { partyId, vendorId, paymentMode, dateFrom, dateTo, search, page, limit } =
+  const { partyId, vendorId, paymentMode, dateFrom, dateTo, search, page, limit, invoiceId } =
     req.query;
+
+  if (invoiceId) {
+    const data = await svc.getVouchersByInvoice({
+      companyId: req.companyId,
+      invoiceId,
+      invoiceType: "purchase",
+      voucherType: "payment",
+    });
+    return res.json(new ApiResponse(200, data));
+  }
+
   const data = await svc.getAllVouchers({
     ...ctx(req),
     voucherType: "payment",

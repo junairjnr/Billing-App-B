@@ -10,6 +10,7 @@ import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accou
 import { getNextVoucherNo } from "../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { isBankPaymentMode, isCashPaymentMode } from "../../utils/paymentModes.js";
 
 const partySnapshotFromCustomer = (party) => ({
   name: party.name,
@@ -188,6 +189,59 @@ export const getOutstandingInvoices = async ({
   return { invoices: outstanding, summary };
 };
 
+export const getVouchersByInvoice = async ({
+  companyId,
+  invoiceId,
+  invoiceType,
+  voucherType,
+}) => {
+  const allocations = await Allocation.find({
+    companyId,
+    invoiceId,
+    invoiceType,
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  if (!allocations.length) return [];
+
+  const voucherIds = [...new Set(allocations.map((a) => String(a.receiptPaymentId)))];
+  const vouchers = await ReceiptPayment.find({
+    _id: { $in: voucherIds },
+    companyId,
+    voucherType,
+    isActive: true,
+    status: { $ne: "cancelled" },
+  })
+    .sort({ date: 1, createdAt: 1 })
+    .lean();
+
+  const voucherMap = Object.fromEntries(vouchers.map((v) => [String(v._id), v]));
+
+  return allocations
+    .map((alloc) => {
+      const voucher = voucherMap[String(alloc.receiptPaymentId)];
+      if (!voucher) return null;
+
+      return {
+        ...voucher,
+        allocations: [
+          {
+            invoiceId: String(alloc.invoiceId),
+            invoiceNo: alloc.invoiceNo,
+            invoiceDate: alloc.invoiceDate,
+            invoiceTotal: alloc.invoiceTotal,
+            paidBefore: alloc.paidBefore ?? 0,
+            amountAdjusted: alloc.amountAdjusted,
+            balanceAfter: alloc.balanceAfter,
+            invoiceType: alloc.invoiceType,
+          },
+        ],
+      };
+    })
+    .filter(Boolean);
+};
+
 export const createVoucher = async ({
   companyId,
   branchId,
@@ -216,10 +270,21 @@ export const createVoucher = async ({
     }).session(session);
     if (!party) throw new ApiError(404, `${partyType} not found`);
 
+    if (isBankPaymentMode(paymentMode) && !bankAccountId) {
+      throw new ApiError(400, "Bank account is required for bank / UPI payments");
+    }
+
+    let resolvedBankAccountId = isCashPaymentMode(paymentMode)
+      ? undefined
+      : bankAccountId;
+
     let bankAccountName = "";
     let bankAccountSnapshot;
-    if (bankAccountId) {
-      const bank = await BankAccount.findOne({ _id: bankAccountId, companyId }).session(session);
+    if (resolvedBankAccountId) {
+      const bank = await BankAccount.findOne({
+        _id: resolvedBankAccountId,
+        companyId,
+      }).session(session);
       if (!bank) throw new ApiError(404, "Bank account not found");
       bankAccountName = bank.accountName;
       bankAccountSnapshot = {
@@ -264,11 +329,18 @@ export const createVoucher = async ({
       const invoice = await Model.findOne({
         _id: alloc.invoiceId,
         companyId,
+        financialYearId,
+        [partyField]: partyId,
         status: "confirmed",
         isActive: { $ne: false },
       }).session(session);
 
-      if (!invoice) throw new ApiError(404, `Invoice ${alloc.invoiceId} not found`);
+      if (!invoice) {
+        throw new ApiError(
+          404,
+          `Invoice ${alloc.invoiceId} not found for this ${partyType}`
+        );
+      }
 
       const paidBefore = invoice.paidAmount ?? 0;
       const currentBalance = computeInvoiceBalance(invoice);
@@ -316,7 +388,7 @@ export const createVoucher = async ({
           partyId,
           partySnapshot: partySnapshotFromCustomer(party),
           paymentMode,
-          bankAccountId: bankAccountId || undefined,
+          bankAccountId: resolvedBankAccountId || undefined,
           bankAccountSnapshot,
           referenceNo: referenceNo || "",
           totalAmount: Number(totalAmount),

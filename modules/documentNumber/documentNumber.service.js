@@ -60,23 +60,39 @@ export const getNextSalesInvoiceNo = async (companyId, financialYearId, salesTyp
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Purchase: PINV-2026-2027-0001 */
+/** Purchase: PKS/PI/2026-27/01 */
 export const getNextPurchaseInvoiceNo = async (companyId, financialYearId) => {
-  const fy = await FinancialYear.findById(financialYearId);
+  const [fy, company] = await Promise.all([
+    FinancialYear.findById(financialYearId),
+    Company.findById(companyId).select("code name"),
+  ]);
   if (!fy) throw new ApiError(404, "Financial year not found");
+  if (!company) throw new ApiError(404, "Company not found");
 
-  const prefix = `PINV-${getFYDocumentCode(fy.label)}`;
+  const companyCode = company.code?.toUpperCase();
+  if (!companyCode) {
+    throw new ApiError(
+      400,
+      "Company code not set. Set company code in company settings before creating invoices."
+    );
+  }
+
+  const prefix = `${companyCode}/PI/${fy.label}/`;
 
   const last = await PurchaseInvoice.findOne(
-    { companyId, financialYearId },
+    {
+      companyId,
+      financialYearId,
+      invoiceNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
+    },
     { invoiceNo: 1 },
     { sort: { createdAt: -1 } }
   );
 
-  if (!last) return `${prefix}-0001`;
+  if (!last) return `${prefix}01`;
 
-  const lastNo = getDocumentSequence(last.invoiceNo);
-  return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
+  const lastNo = parseInt(last.invoiceNo.split("/").pop(), 10) || 0;
+  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
 /** Sales return: PKS/SR-WH/2026-27/01 */

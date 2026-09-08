@@ -27,6 +27,28 @@ export const assertUniqueItemName = async (companyId, name, excludeId) => {
   return trimmed;
 };
 
+/** Normalize sales/purchase rates and keep legacy price aligned with salesRate. */
+export const normalizeItemRates = (body = {}) => {
+  const out = { ...body };
+  const hasSales =
+    body.salesRate !== undefined || body.price !== undefined;
+  const hasPurchase = body.purchaseRate !== undefined;
+
+  if (hasSales) {
+    const salesRate = Number(body.salesRate ?? body.price ?? 0);
+    out.salesRate = salesRate;
+    out.price = salesRate;
+  }
+
+  if (hasPurchase) {
+    out.purchaseRate = Number(body.purchaseRate);
+  } else if (hasSales && out.purchaseRate === undefined) {
+    out.purchaseRate = Number(body.purchaseRate ?? body.price ?? out.salesRate ?? 0);
+  }
+
+  return out;
+};
+
 export const syncItemIndexes = async () => {
   const collection = itemModel.collection;
   const indexes = await collection.indexes();

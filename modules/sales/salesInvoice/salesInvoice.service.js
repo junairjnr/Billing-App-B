@@ -10,13 +10,22 @@ import { postSalesInvoice } from "../../accounting/journal/posting.service.js";
 import { getNextSalesInvoiceNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import Branch from "../../branch/branch.model.js";
+import {
+  calculateLineGst,
+  resolveGstSupplyType,
+  resolvePartyStateCode,
+} from "../../../utils/gstTax.js";
 
 const customerSnapshotFromCustomer = (customer) => ({
   name: customer.name,
   gstin: customer.gstin || "",
   place: customer.address?.place || "",
   state: customer.address?.state || "",
-  stateCode: customer.address?.stateCode || "",
+  stateCode: resolvePartyStateCode({
+    gstin: customer.gstin,
+    address: customer.address,
+  }),
   address: [customer.address?.line1, customer.address?.place, customer.address?.city]
     .filter(Boolean)
     .join(", "),
@@ -35,11 +44,12 @@ const computeInvoiceTotals = ({
   lineNetAmount,
   totalSGST,
   totalCGST,
+  totalIGST = 0,
   cashDiscountPercent = 0,
   cashDiscountAmt: cashDiscountInput = 0,
 }) => {
   const netAmount = round2(lineNetAmount);
-  const totalTax = round2(totalSGST + totalCGST);
+  const totalTax = round2(totalSGST + totalCGST + totalIGST);
   const total = round2(netAmount + totalTax);
   const billTotal = Math.round(total);
   const roundOff = round2(billTotal - total);
@@ -86,7 +96,6 @@ export const createSalesInvoice = async ({
   notes,
   cashDiscountPercent = 0,
   cashDiscountAmt = 0,
-  saleMode = "cash",
   userId,
 }) => {
   const customer = await Customer.findOne({
@@ -107,6 +116,20 @@ export const createSalesInvoice = async ({
   });
   if (!priceLevel) throw new ApiError(404, "Price level not found");
 
+  const branch = await Branch.findOne({ _id: branchId, companyId }).select("address gstin");
+  const supplierStateCode = resolvePartyStateCode({
+    gstin: branch?.gstin,
+    address: branch?.address,
+  });
+  const placeOfSupplyStateCode = resolvePartyStateCode({
+    gstin: customer.gstin,
+    address: customer.address,
+  });
+  const gstSupplyType = resolveGstSupplyType(
+    supplierStateCode,
+    placeOfSupplyStateCode
+  );
+
   const itemIds = items.map((i) => i.itemId);
   const dbItems = await Item.find({
     _id: { $in: itemIds },
@@ -122,28 +145,33 @@ export const createSalesInvoice = async ({
   let lineNetAmount = 0;
   let totalSGST = 0;
   let totalCGST = 0;
+  let totalIGST = 0;
 
   const processedItems = items.map((row, index) => {
     const dbItem = dbItems.find((d) => String(d._id) === String(row.itemId));
 
-    const baseRate = dbItem.price;
     const priceLevelPct = priceLevel.taxPercent;
+    const baseRate = Number(dbItem.price) || Number(row.baseRate) || 0;
     const rate = Number((baseRate + (baseRate * priceLevelPct / 100)).toFixed(2));
-    const taxPercent = Number(dbItem.taxPercent) || 0;
-    const halfRate = taxPercent / 2;
+    const taxPercent = Number(dbItem.taxPercent) || 18;
 
     const discount = Number(row.discount) || 0;
     const grossAmt = Number((rate * row.qty).toFixed(2));
     const discountAmt = Number((grossAmt * discount / 100).toFixed(2));
     const taxableValue = Number((grossAmt - discountAmt).toFixed(2));
 
-    const sgst = Number((taxableValue * halfRate / 100).toFixed(2));
-    const cgst = Number((taxableValue * halfRate / 100).toFixed(2));
-    const total = Number((taxableValue + sgst + cgst).toFixed(2));
+    const gst = calculateLineGst({
+      taxableValue,
+      taxPercent,
+      supplierStateCode,
+      placeOfSupplyStateCode,
+    });
+    const total = Number((taxableValue + gst.sgst + gst.cgst + gst.igst).toFixed(2));
 
     lineNetAmount += taxableValue;
-    totalSGST += sgst;
-    totalCGST += cgst;
+    totalSGST += gst.sgst;
+    totalCGST += gst.cgst;
+    totalIGST += gst.igst;
 
     return {
       slNo: index + 1,
@@ -158,8 +186,9 @@ export const createSalesInvoice = async ({
       discountAmt,
       taxableValue,
       taxPercent,
-      sgst,
-      cgst,
+      sgst: gst.sgst,
+      cgst: gst.cgst,
+      igst: gst.igst,
       total,
     };
   });
@@ -168,25 +197,23 @@ export const createSalesInvoice = async ({
     lineNetAmount,
     totalSGST,
     totalCGST,
+    totalIGST,
     cashDiscountPercent,
     cashDiscountAmt,
   });
 
-  const isCashSale = saleMode !== "credit";
-  const paidAmount = isCashSale ? totals.grandTotal : 0;
-  const balanceAmount = isCashSale ? 0 : totals.grandTotal;
-  const paymentStatus = isCashSale ? "paid" : "pending";
+  if (totals.grandTotal <= 0 && totals.lineNetAmount <= 0) {
+    throw new ApiError(
+      400,
+      "Invoice total is zero. Check item sales rate / price in product master."
+    );
+  }
 
-  const customerSnapshot = {
-    name: customer.name,
-    gstin: customer.gstin || "",
-    place: customer.address?.place || "",
-    state: customer.address?.state || "",
-    stateCode: customer.address?.stateCode || "",
-    address: [customer.address?.line1, customer.address?.place, customer.address?.city]
-      .filter(Boolean)
-      .join(", "),
-  };
+  const paidAmount = 0;
+  const balanceAmount = round2(totals.grandTotal);
+  const paymentStatus = "pending";
+
+  const customerSnapshot = customerSnapshotFromCustomer(customer);
 
   const priceLevelSnapshot = {
     name: priceLevel.name,
@@ -207,15 +234,18 @@ export const createSalesInvoice = async ({
         priceLevelSnapshot,
         customerId,
         customerSnapshot,
+        supplierStateCode,
+        placeOfSupplyStateCode,
+        gstSupplyType,
         items: processedItems,
         lineNetAmount: totals.lineNetAmount,
         cashDiscountPercent: totals.cashDiscountPercent,
         cashDiscountAmt: totals.cashDiscountAmt,
         billTotal: totals.billTotal,
-        saleMode: isCashSale ? "cash" : "credit",
         netAmount: totals.netAmount,
         totalSGST: totals.totalSGST,
         totalCGST: totals.totalCGST,
+        totalIGST,
         totalTax: totals.totalTax,
         total: totals.total,
         roundOff: totals.roundOff,

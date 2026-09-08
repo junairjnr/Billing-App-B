@@ -21,8 +21,10 @@ const itemSchema = new mongoose.Schema(
       ref: "Uom",
       required: true,
     },
-    price: { type: Number, required: true, min: 0 },
-    taxPercent: { type: Number, default: 0 }, // GST %
+    salesRate: { type: Number, min: 0, default: 0 },
+    purchaseRate: { type: Number, min: 0, default: 0 },
+    price: { type: Number, required: true, min: 0 }, // legacy; kept in sync with salesRate
+    taxPercent: { type: Number, default: 18 }, // GST %
     hsnCode: { type: String, trim: true }, // for GST reporting
     description: String,
     isActive: { type: Boolean, default: true },
@@ -45,5 +47,13 @@ itemSchema.index(
   }
 );
 itemSchema.index({ companyId: 1, name: "text", description: "text" });
+
+/** Legacy items may have salesRate/purchaseRate 0 while price is set. */
+itemSchema.post("init", function syncLegacyRates() {
+  const price = Number(this.price) || 0;
+  if (price <= 0) return;
+  if (!Number(this.salesRate)) this.salesRate = price;
+  if (!Number(this.purchaseRate)) this.purchaseRate = price;
+});
 
 export default mongoose.model("Item", itemSchema);

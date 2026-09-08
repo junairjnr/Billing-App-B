@@ -5,6 +5,7 @@ import { postExpense, reverseDocumentJournal } from "../accounting/journal/posti
 import { getNextExpenseNo } from "../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { isBankPaymentMode, isCashPaymentMode } from "../../utils/paymentModes.js";
 
 const baseFilter = ({ companyId, branchId, financialYearId }) => ({
   companyId,
@@ -15,6 +16,16 @@ const baseFilter = ({ companyId, branchId, financialYearId }) => ({
 });
 
 export const createExpense = async (ctx, body) => {
+  const paymentMode = body.paymentMode || "cash";
+
+  if (isBankPaymentMode(paymentMode) && !body.bankAccountId) {
+    throw new ApiError(400, "Bank account is required for bank / UPI payments");
+  }
+
+  const bankAccountId = isCashPaymentMode(paymentMode)
+    ? undefined
+    : body.bankAccountId || undefined;
+
   return withTransaction(async (session) => {
     const expenseNo = await getNextExpenseNo(ctx.companyId, ctx.financialYearId);
 
@@ -29,8 +40,8 @@ export const createExpense = async (ctx, body) => {
           category: body.category,
           title: body.title,
           amount: Number(body.amount),
-          paymentMode: body.paymentMode || "cash",
-          bankAccountId: body.bankAccountId || undefined,
+          paymentMode,
+          bankAccountId,
           referenceNo: body.referenceNo,
           notes: body.notes,
           createdBy: ctx.userId,
@@ -113,7 +124,9 @@ export const getExpense = async (ctx, id) => {
     companyId: ctx.companyId,
     financialYearId: ctx.financialYearId,
     isActive: { $ne: false },
-  }).lean();
+  })
+    .populate("bankAccountId", "accountName bankName accountNumber ifscCode upiId")
+    .lean();
 
   if (!doc) throw new ApiError(404, "Expense not found");
   return doc;

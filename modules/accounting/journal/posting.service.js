@@ -2,8 +2,19 @@ import { getAccountByCode } from "../chartOfAccount/chartOfAccount.service.js";
 import { COA } from "../chartOfAccount/defaultAccounts.js";
 import { createJournalEntry, reverseJournalEntry, getJournalByReference } from "./journal.service.js";
 import ApiError from "../../../utils/ApiError.js";
+import { isBankPaymentMode, isCashPaymentMode } from "../../../utils/paymentModes.js";
 
 const round2 = (n) => Number(Number(n).toFixed(2));
+
+const paymentLedgerNote = (paymentMode, bankSnapshot) => {
+  if (isCashPaymentMode(paymentMode)) return "Cash";
+  if (paymentMode === "upi") {
+    const upi = bankSnapshot?.upiId ? ` UPI ${bankSnapshot.upiId}` : " UPI";
+    return `Bank${upi}`;
+  }
+  const bankName = bankSnapshot?.bankName ? ` ${bankSnapshot.bankName}` : "";
+  return `Bank${bankName}`;
+};
 
 const line = (account, { debit = 0, credit = 0, customerId, vendorId, narration } = {}) => ({
   accountId: account._id,
@@ -17,7 +28,7 @@ const line = (account, { debit = 0, credit = 0, customerId, vendorId, narration 
 });
 
 const cashOrBankAccount = async (companyId, paymentMode, session) => {
-  const isBank = paymentMode === "bank" || paymentMode === "bank_transfer";
+  const isBank = isBankPaymentMode(paymentMode);
   return getAccountByCode(companyId, isBank ? COA.BANK : COA.CASH, session);
 };
 
@@ -68,20 +79,46 @@ export const postSalesInvoice = async (
 
   const lines = [];
   const grandTotal = round2(invoice.grandTotal);
+  const paidAmount = round2(invoice.paidAmount ?? 0);
+  const balanceAmount = round2(
+    invoice.balanceAmount ?? Math.max(0, grandTotal - paidAmount)
+  );
   const cashDiscountAmt = round2(invoice.cashDiscountAmt || 0);
   const netAmount = round2(invoice.netAmount);
   const totalTax = round2(invoice.totalTax);
   const billTotal = round2(invoice.billTotal ?? grandTotal + cashDiscountAmt);
   const roundOff = round2(invoice.roundOff ?? billTotal - netAmount - totalTax);
-  const isCashSale = invoice.saleMode === "cash";
-  const debitAccount = isCashSale ? cash : ar;
+
+  if (paidAmount >= grandTotal - 0.009) {
+    lines.push(
+      line(cash, {
+        debit: grandTotal,
+        narration: `Sales ${invoice.invoiceNo}`,
+      })
+    );
+  } else if (paidAmount > 0) {
+    lines.push(
+      line(cash, {
+        debit: paidAmount,
+        narration: `Cash received ${invoice.invoiceNo}`,
+      }),
+      line(ar, {
+        debit: balanceAmount,
+        customerId: invoice.customerId,
+        narration: `Sales ${invoice.invoiceNo}`,
+      })
+    );
+  } else {
+    lines.push(
+      line(ar, {
+        debit: grandTotal,
+        customerId: invoice.customerId,
+        narration: `Sales ${invoice.invoiceNo}`,
+      })
+    );
+  }
 
   lines.push(
-    line(debitAccount, {
-      debit: grandTotal,
-      ...(isCashSale ? {} : { customerId: invoice.customerId }),
-      narration: `Sales ${invoice.invoiceNo}${isCashSale ? " (Cash)" : ""}`,
-    }),
     line(sales, { credit: netAmount, narration: `Sales ${invoice.invoiceNo}` }),
   );
 
@@ -219,12 +256,16 @@ export const postReceipt = async (
   ]);
 
   const amount = round2(voucher.totalAmount);
+  const ledgerNote = paymentLedgerNote(voucher.paymentMode, voucher.bankAccountSnapshot);
   const lines = [
-    line(cashBank, { debit: amount, narration: `Receipt ${voucher.voucherNo}` }),
+    line(cashBank, {
+      debit: amount,
+      narration: `Receipt ${voucher.voucherNo} (${ledgerNote})`,
+    }),
     line(ar, {
       credit: amount,
       customerId: voucher.partyId,
-      narration: `Receipt ${voucher.voucherNo}`,
+      narration: `Receipt ${voucher.voucherNo} (${ledgerNote})`,
     }),
   ];
 
@@ -263,13 +304,17 @@ export const postVendorPayment = async (
   ]);
 
   const amount = round2(voucher.totalAmount);
+  const ledgerNote = paymentLedgerNote(voucher.paymentMode, voucher.bankAccountSnapshot);
   const lines = [
     line(ap, {
       debit: amount,
       vendorId: voucher.partyId,
-      narration: `Payment ${voucher.voucherNo}`,
+      narration: `Payment ${voucher.voucherNo} (${ledgerNote})`,
     }),
-    line(cashBank, { credit: amount, narration: `Payment ${voucher.voucherNo}` }),
+    line(cashBank, {
+      credit: amount,
+      narration: `Payment ${voucher.voucherNo} (${ledgerNote})`,
+    }),
   ];
 
   return createJournalEntry(
@@ -307,6 +352,7 @@ export const postExpense = async (
   ]);
 
   const amount = round2(expense.amount);
+  const ledgerNote = paymentLedgerNote(expense.paymentMode);
   const lines = [
     line(expenseAcc, {
       debit: amount,
@@ -314,7 +360,7 @@ export const postExpense = async (
     }),
     line(cashBank, {
       credit: amount,
-      narration: `Expense ${expense.expenseNo}`,
+      narration: `Expense ${expense.expenseNo} (${ledgerNote})`,
     }),
   ];
 
