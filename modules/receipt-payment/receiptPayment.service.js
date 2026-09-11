@@ -527,8 +527,11 @@ export const getAllVouchers = async ({
   };
 };
 
-export const getOneVoucher = async (companyId, id) => {
-  const voucher = await ReceiptPayment.findOne({ _id: id, companyId, isActive: true })
+export const getOneVoucher = async (companyId, id, voucherType) => {
+  const filter = { _id: id, companyId, isActive: true };
+  if (voucherType) filter.voucherType = voucherType;
+
+  const voucher = await ReceiptPayment.findOne(filter)
     .populate("partyId", "name phone gstin address")
     .populate("bankAccountId", "accountName bankName accountNumber ifscCode upiId branch")
     .lean();

@@ -9,6 +9,8 @@ import purchaseInvoiceModel from "../purchase/purchaseInvoice/purchaseInvoice.mo
 import SalesReturn from "../sales/salesReturn/salesReturn.model.js";
 import PurchaseReturn from "../purchase/purchaseReturn/purchaseReturn.model.js";
 import Expense from "../expense/expense.model.js";
+import { withSalesReturnTaxTotals } from "../reports/salesReturnReport/salesReturnReport.tax.js";
+import { withPurchaseReturnTaxTotals } from "../reports/purchaseReturnReport/purchaseReturnReport.tax.js";
 
 const DEFAULT_GST_PERCENT = 18;
 const EXPORT_LIMIT = 10000;
@@ -64,6 +66,40 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         .limit(EXPORT_LIMIT)
         .lean();
     }
+    case "sales-return-report": {
+      const filter = { ...baseScope(ctx), ...buildDateFilter(query, "returnDate") };
+      if (query.customerId) filter.customerId = query.customerId;
+      if (query.salesType) filter.salesType = query.salesType;
+      if (query.warehouseId) filter.warehouseId = query.warehouseId;
+      if (query.returnMode) filter.returnMode = query.returnMode;
+      if (query.status) filter.status = query.status;
+      const rows = await SalesReturn.find(filter)
+        .populate("customerId", "name phone")
+        .select(
+          "returnNo returnDate returnMode originalInvoiceNo salesType customerSnapshot priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status"
+        )
+        .sort({ returnDate: -1 })
+        .limit(EXPORT_LIMIT)
+        .lean();
+      return rows.map(withSalesReturnTaxTotals);
+    }
+    case "purchase-return-report": {
+      const filter = { ...baseScope(ctx), ...buildDateFilter(query, "returnDate") };
+      if (query.vendorId) filter.vendorId = query.vendorId;
+      if (query.warehouseId) filter.warehouseId = query.warehouseId;
+      if (query.returnMode) filter.returnMode = query.returnMode;
+      if (query.status) filter.status = query.status;
+      const rows = await PurchaseReturn.find(filter)
+        .populate("vendorId", "name phone")
+        .populate("warehouseId", "name")
+        .select(
+          "returnNo returnDate returnMode originalInvoiceNo vendorSnapshot warehouseId items netAmount totalSGST totalCGST totalTax grandTotal status"
+        )
+        .sort({ returnDate: -1 })
+        .limit(EXPORT_LIMIT)
+        .lean();
+      return rows.map(withPurchaseReturnTaxTotals);
+    }
     case "stock-report": {
       const filter = { companyId, financialYearId };
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
@@ -76,14 +112,17 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
           : { $in: items.map((i) => i._id) };
       }
       const rows = await Stock.find(filter)
-        .populate({ path: "itemId", select: "name code hsnCode categoryId uomId taxPercent", populate: [{ path: "categoryId", select: "name" }, { path: "uomId", select: "name" }] })
+        .populate({ path: "itemId", select: "name code hsnCode categoryId uomId taxPercent price", populate: [{ path: "categoryId", select: "name" }, { path: "uomId", select: "name" }] })
         .populate("warehouseId", "name code")
         .lean();
       return rows.map((row) => {
-        const rate = row.avgCost ?? 0;
+        const rate = Number(row.itemId?.price) || Number(row.avgCost) || 0;
         const stockValue = Number((row.qty * rate).toFixed(2));
         const taxPercent = Number(row.itemId?.taxPercent) || DEFAULT_GST_PERCENT;
-        return { ...row, rate, stockValue, sgst: Number(((stockValue * taxPercent) / 200).toFixed(2)), cgst: Number(((stockValue * taxPercent) / 200).toFixed(2)) };
+        const sgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
+        const cgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
+        const stockValueTotal = Number((stockValue + sgst + cgst).toFixed(2));
+        return { ...row, rate, stockValue, sgst, cgst, stockValueTotal };
       });
     }
     case "ledger-report": {

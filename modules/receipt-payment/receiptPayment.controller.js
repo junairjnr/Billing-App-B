@@ -98,12 +98,12 @@ export const listPayments = asyncHandler(async (req, res) => {
 });
 
 export const getReceipt = asyncHandler(async (req, res) => {
-  const data = await svc.getOneVoucher(req.companyId, req.params.id);
+  const data = await svc.getOneVoucher(req.companyId, req.params.id, "receipt");
   res.json(new ApiResponse(200, data));
 });
 
 export const getPayment = asyncHandler(async (req, res) => {
-  const data = await svc.getOneVoucher(req.companyId, req.params.id);
+  const data = await svc.getOneVoucher(req.companyId, req.params.id, "payment");
   res.json(new ApiResponse(200, data));
 });
 

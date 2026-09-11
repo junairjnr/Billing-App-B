@@ -68,7 +68,7 @@ export const stockReport = asyncHandler(async (req, res) => {
   let data = await Stock.find(filter)
     .populate({
       path: "itemId",
-      select: "name code hsnCode categoryId uomId taxPercent",
+      select: "name code hsnCode categoryId uomId taxPercent price",
       populate: [
         { path: "categoryId", select: "name" },
         { path: "uomId", select: "name shortCode" },
@@ -78,11 +78,12 @@ export const stockReport = asyncHandler(async (req, res) => {
     .lean();
 
   data = data.map((row) => {
-    const rate = row.avgCost ?? 0;
+    const rate = Number(row.itemId?.price) || Number(row.avgCost) || 0;
     const stockValue = Number((row.qty * rate).toFixed(2));
     const taxPercent = Number(row.itemId?.taxPercent) || DEFAULT_GST_PERCENT;
     const sgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
     const cgst = Number(((stockValue * taxPercent) / 200).toFixed(2));
+    const stockValueTotal = Number((stockValue + sgst + cgst).toFixed(2));
 
     return {
       ...row,
@@ -91,6 +92,7 @@ export const stockReport = asyncHandler(async (req, res) => {
       stockValue,
       sgst,
       cgst,
+      stockValueTotal,
     };
   });
 
@@ -101,7 +103,12 @@ export const stockReport = asyncHandler(async (req, res) => {
     totalQty: Number(data.reduce((sum, row) => sum + (row.qty ?? 0), 0).toFixed(2)),
     totalSGST: Number(data.reduce((sum, row) => sum + (row.sgst ?? 0), 0).toFixed(2)),
     totalCGST: Number(data.reduce((sum, row) => sum + (row.cgst ?? 0), 0).toFixed(2)),
-    totalStockValue: Number(data.reduce((sum, row) => sum + row.stockValue, 0).toFixed(2)),
+    totalTaxableValue: Number(
+      data.reduce((sum, row) => sum + (row.stockValue ?? 0), 0).toFixed(2)
+    ),
+    totalStockValue: Number(
+      data.reduce((sum, row) => sum + (row.stockValueTotal ?? 0), 0).toFixed(2)
+    ),
   };
 
   const total = data.length;

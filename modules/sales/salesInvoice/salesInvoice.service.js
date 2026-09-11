@@ -1,5 +1,6 @@
 import SalesInvoice  from "./salesInvoice.model.js";
 import Customer      from "../../masters/customer/customer.model.js";
+import { salesCustomerTypeFilter } from "../../masters/customer/customer.service.js";
 import Item          from "../../masters/item/item.model.js";
 import PriceLevel    from "../../masters/priceLevel/priceLevel.model.js";
 import Stock         from "../../stock/stock.model.js";
@@ -102,8 +103,8 @@ export const createSalesInvoice = async ({
     _id: customerId,
     companyId,
     type: "sales",
-    customerType: salesType,
     isActive: true,
+    ...salesCustomerTypeFilter(salesType),
   });
   if (!customer) {
     throw new ApiError(404, `Customer not found. Must be a ${salesType} customer.`);

@@ -20,6 +20,7 @@ const salesReturnItemSchema = new mongoose.Schema(
     taxableValue: { type: Number, required: true },
     sgst: { type: Number, default: 0 },
     cgst: { type: Number, default: 0 },
+    igst: { type: Number, default: 0 },
     total: { type: Number, required: true },
   },
   { _id: true }

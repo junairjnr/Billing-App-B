@@ -21,3 +21,15 @@ export const assertUniqueCustomerName = async (companyId, name, excludeId) => {
 
   return trimmed;
 };
+
+/** Match sales party by invoice/return salesType (retail includes legacy records). */
+export const salesCustomerTypeFilter = (salesType) => {
+  if (salesType === "wholesale") return { customerType: "wholesale" };
+  return {
+    $or: [
+      { customerType: "retail" },
+      { customerType: { $exists: false } },
+      { customerType: null },
+    ],
+  };
+};

@@ -5,7 +5,7 @@ import customerModel from "./customer.model.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
-import { assertUniqueCustomerName } from "./customer.service.js";
+import { assertUniqueCustomerName, salesCustomerTypeFilter } from "./customer.service.js";
 
 const router = express.Router();
 
@@ -74,18 +74,24 @@ router.get(
 
     const filter = { companyId: req.companyId, isActive: true };
     if (type) filter.type = type;
-    if (customerType) filter.customerType = customerType;
+    if (customerType) Object.assign(filter, salesCustomerTypeFilter(customerType));
+
+    const clauses = [];
     if (q) {
-      filter.$or = [
-        { name: { $regex: q, $options: "i" } },
-        { phone: { $regex: q, $options: "i" } },
-      ];
+      clauses.push({
+        $or: [
+          { name: { $regex: q, $options: "i" } },
+          { phone: { $regex: q, $options: "i" } },
+        ],
+      });
     }
+    if (clauses.length === 1) Object.assign(filter, clauses[0]);
+    else if (clauses.length > 1) filter.$and = clauses;
 
     const data = await customerModel
       .find(filter)
       .select("name phone type customerType gstin address")
-      .limit(10)
+      .limit(50)
       .lean();
 
     res.json(new ApiResponse(200, data));

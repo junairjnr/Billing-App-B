@@ -2,15 +2,22 @@ import mongoose from "mongoose";
 import SalesReturn from "./salesReturn.model.js";
 import SalesInvoice from "../salesInvoice/salesInvoice.model.js";
 import Customer from "../../masters/customer/customer.model.js";
+import { salesCustomerTypeFilter } from "../../masters/customer/customer.service.js";
 import Item from "../../masters/item/item.model.js";
 import PriceLevel from "../../masters/priceLevel/priceLevel.model.js";
 import Warehouse from "../../warehouse/warehouse.model.js";
+import Branch from "../../branch/branch.model.js";
 import { moveStock } from "../../stock/stock.services.js";
 import ApiError from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
 import { getNextSalesReturnNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import {
+  calculateLineGst,
+  DEFAULT_GST_PERCENT,
+  resolvePartyStateCode,
+} from "../../../utils/gstTax.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -92,7 +99,10 @@ export const getReturnableItems = async (companyId, salesInvoiceId) => {
     companyId,
     isActive: true,
     status: "confirmed",
-  }).lean();
+  })
+    .populate("items.itemId", "name code hsn")
+    .populate("items.uomId", "name shortCode")
+    .lean();
 
   if (!invoice) throw new ApiError(404, "Sales invoice not found");
 
@@ -101,14 +111,28 @@ export const getReturnableItems = async (companyId, salesInvoiceId) => {
   const items = invoice.items.map((row) => {
     const returnedQty = returnedMap[String(row._id)] || 0;
     const returnableQty = Number((row.qty - returnedQty).toFixed(3));
+    const itemRef = row.itemId;
+    const uomRef = row.uomId;
     return {
       invoiceItemId: row._id,
       slNo: row.slNo,
-      itemId: row.itemId,
-      hsn: row.hsn,
-      uomId: row.uomId,
+      itemId: typeof itemRef === "object" ? itemRef?._id : itemRef,
+      itemName: typeof itemRef === "object" ? itemRef?.name || "" : "",
+      itemCode: typeof itemRef === "object" ? itemRef?.code || "" : "",
+      hsn: row.hsn || (typeof itemRef === "object" ? itemRef?.hsn : "") || "",
+      uomId: typeof uomRef === "object" ? uomRef?._id : uomRef,
+      uomShortCode:
+        typeof uomRef === "object" ? uomRef?.shortCode || uomRef?.name || "" : "",
+      baseRate: row.baseRate,
+      priceLevelPct: row.priceLevelPct,
       rate: row.rate,
       discount: row.discount,
+      discountAmt: row.discountAmt,
+      taxableValue: row.taxableValue,
+      sgst: row.sgst,
+      cgst: row.cgst,
+      igst: row.igst,
+      total: row.total,
       originalQty: row.qty,
       returnedQty,
       returnableQty: Math.max(0, returnableQty),
@@ -138,35 +162,48 @@ const customerSnapshotFromCustomer = (customer) => ({
     .join(", "),
 });
 
-const SGST_RATE = 9;
-const CGST_RATE = 9;
-
-const buildManualSalesReturnLine = (dbItem, priceLevel, row, slNo) => {
+const buildManualSalesReturnLine = (
+  dbItem,
+  priceLevel,
+  row,
+  slNo,
+  supplierStateCode,
+  placeOfSupplyStateCode
+) => {
   const qty = Number(row.qty);
-  const rate = Number(row.rate);
   const discount = Number(row.discount) || 0;
+  const priceLevelPct = priceLevel.taxPercent;
+  const baseRate = Number(dbItem.price) || Number(row.baseRate) || 0;
+  const rate = Number((baseRate + (baseRate * priceLevelPct) / 100).toFixed(2));
+  const taxPercent = Number(dbItem.taxPercent) || DEFAULT_GST_PERCENT;
   const grossAmt = Number((rate * qty).toFixed(2));
-  const discountAmt = Number((grossAmt * discount / 100).toFixed(2));
+  const discountAmt = Number(((grossAmt * discount) / 100).toFixed(2));
   const taxableValue = Number((grossAmt - discountAmt).toFixed(2));
-  const sgst = Number(((taxableValue * SGST_RATE) / 100).toFixed(2));
-  const cgst = Number(((taxableValue * CGST_RATE) / 100).toFixed(2));
-  const total = Number((taxableValue + sgst + cgst).toFixed(2));
+  const gst = calculateLineGst({
+    taxableValue,
+    taxPercent,
+    supplierStateCode,
+    placeOfSupplyStateCode,
+  });
+  const total = Number((taxableValue + gst.sgst + gst.cgst + gst.igst).toFixed(2));
 
   return {
     slNo,
     invoiceItemId: new mongoose.Types.ObjectId(),
     itemId: dbItem._id,
-    hsn: row.hsn || dbItem.hsn || "",
+    hsn: row.hsn || dbItem.hsn || dbItem.hsnCode || "",
     uomId: dbItem.uomId?._id ?? dbItem.uomId,
-    baseRate: Number(dbItem.price) || Number(row.baseRate) || 0,
-    priceLevelPct: priceLevel.taxPercent,
+    baseRate,
+    priceLevelPct,
     rate,
     qty,
     discount,
     discountAmt,
     taxableValue,
-    sgst,
-    cgst,
+    taxPercent,
+    sgst: gst.sgst,
+    cgst: gst.cgst,
+    igst: gst.igst,
     total,
   };
 };
@@ -190,15 +227,33 @@ const createManualSalesReturn = async ({
   if (!priceLevelId) throw new ApiError(400, "Price level is required for manual return");
   if (!items?.length) throw new ApiError(400, "At least one return item is required");
 
-  const [customer, warehouse, priceLevel] = await Promise.all([
-    Customer.findOne({ _id: customerId, companyId, type: "sales", isActive: true }),
+  const [customer, warehouse, priceLevel, branch] = await Promise.all([
+    Customer.findOne({
+      _id: customerId,
+      companyId,
+      type: "sales",
+      isActive: true,
+      ...salesCustomerTypeFilter(salesType),
+    }),
     Warehouse.findOne({ _id: warehouseId, companyId, isActive: true }),
     PriceLevel.findOne({ _id: priceLevelId, companyId, isActive: true }),
+    Branch.findOne({ _id: branchId, companyId }).select("address gstin"),
   ]);
 
-  if (!customer) throw new ApiError(404, "Customer not found");
+  if (!customer) {
+    throw new ApiError(404, `Customer not found. Must be a ${salesType} customer.`);
+  }
   if (!warehouse) throw new ApiError(404, "Warehouse not found");
   if (!priceLevel) throw new ApiError(404, "Price level not found");
+
+  const supplierStateCode = resolvePartyStateCode({
+    gstin: branch?.gstin,
+    address: branch?.address,
+  });
+  const placeOfSupplyStateCode = resolvePartyStateCode({
+    gstin: customer.gstin,
+    address: customer.address,
+  });
 
   const itemIds = [...new Set(items.map((row) => String(row.itemId)).filter(Boolean))];
   const dbItems = await Item.find({ _id: { $in: itemIds }, companyId, isActive: true }).populate(
@@ -211,14 +266,11 @@ const createManualSalesReturn = async ({
   let netAmount = 0;
   let totalSGST = 0;
   let totalCGST = 0;
+  let totalIGST = 0;
 
   for (const row of items) {
     const qty = Number(row.qty);
-    const rate = Number(row.rate);
     if (!row.itemId || !qty || qty <= 0) continue;
-    if (!rate || rate <= 0) {
-      throw new ApiError(400, "Rate is required for each manual return line");
-    }
 
     const dbItem = itemMap[String(row.itemId)];
     if (!dbItem) throw new ApiError(404, `Item not found: ${row.itemId}`);
@@ -227,19 +279,26 @@ const createManualSalesReturn = async ({
       dbItem,
       priceLevel,
       row,
-      processedItems.length + 1
+      processedItems.length + 1,
+      supplierStateCode,
+      placeOfSupplyStateCode
     );
+    if (!built.rate || built.rate <= 0) {
+      throw new ApiError(400, "Rate is required for each manual return line");
+    }
+
     processedItems.push(built);
     netAmount += built.taxableValue;
     totalSGST += built.sgst;
     totalCGST += built.cgst;
+    totalIGST += built.igst;
   }
 
   if (!processedItems.length) {
     throw new ApiError(400, "No valid return quantities provided");
   }
 
-  const totalTax = Number((totalSGST + totalCGST).toFixed(2));
+  const totalTax = Number((totalSGST + totalCGST + totalIGST).toFixed(2));
   const total = Number((netAmount + totalTax).toFixed(2));
   const grandTotal = Math.round(total);
   const roundOff = Number((grandTotal - total).toFixed(2));
