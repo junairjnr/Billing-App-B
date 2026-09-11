@@ -88,7 +88,10 @@ export const getReturnableItems = async (companyId, purchaseInvoiceId) => {
     companyId,
     isActive: true,
     status: "confirmed",
-  }).lean();
+  })
+    .populate("items.itemId", "name code hsnCode")
+    .populate("items.uomId", "name shortCode")
+    .lean();
 
   if (!invoice) throw new ApiError(404, "Purchase invoice not found");
 
@@ -97,13 +100,24 @@ export const getReturnableItems = async (companyId, purchaseInvoiceId) => {
   const items = invoice.items.map((row) => {
     const returnedQty = returnedMap[String(row._id)] || 0;
     const returnableQty = Number((row.qty - returnedQty).toFixed(3));
+    const itemRef = row.itemId;
+    const uomRef = row.uomId;
     return {
       invoiceItemId: row._id,
       slNo: row.slNo,
-      itemId: row.itemId,
-      hsn: row.hsn,
-      uomId: row.uomId,
+      itemId: typeof itemRef === "object" ? itemRef?._id : itemRef,
+      itemName: typeof itemRef === "object" ? itemRef?.name || "" : "",
+      itemCode: typeof itemRef === "object" ? itemRef?.code || "" : "",
+      hsn: row.hsn || (typeof itemRef === "object" ? itemRef?.hsnCode : "") || "",
+      uomId: typeof uomRef === "object" ? uomRef?._id : uomRef,
+      uomShortCode:
+        typeof uomRef === "object" ? uomRef?.shortCode || uomRef?.name || "" : "",
       rate: row.rate,
+      taxPercent: row.taxPercent,
+      taxableValue: row.taxableValue,
+      sgst: row.sgst,
+      cgst: row.cgst,
+      total: row.total,
       originalQty: row.qty,
       returnedQty,
       returnableQty: Math.max(0, returnableQty),
@@ -474,7 +488,7 @@ export const getOnePurchaseReturn = async (companyId, returnId) => {
     .populate("vendorId", "name phone gstin address")
     .populate("warehouseId", "name code")
     .populate("purchaseInvoiceId", "invoiceNo vendorInvoiceNo purchaseDate grandTotal returnedAmount")
-    .populate("items.itemId", "name code hsn")
+    .populate("items.itemId", "name code hsnCode")
     .populate("items.uomId", "name shortCode")
     .lean();
 

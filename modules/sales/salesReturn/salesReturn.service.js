@@ -100,7 +100,7 @@ export const getReturnableItems = async (companyId, salesInvoiceId) => {
     isActive: true,
     status: "confirmed",
   })
-    .populate("items.itemId", "name code hsn")
+    .populate("items.itemId", "name code hsnCode")
     .populate("items.uomId", "name shortCode")
     .lean();
 
@@ -119,7 +119,7 @@ export const getReturnableItems = async (companyId, salesInvoiceId) => {
       itemId: typeof itemRef === "object" ? itemRef?._id : itemRef,
       itemName: typeof itemRef === "object" ? itemRef?.name || "" : "",
       itemCode: typeof itemRef === "object" ? itemRef?.code || "" : "",
-      hsn: row.hsn || (typeof itemRef === "object" ? itemRef?.hsn : "") || "",
+      hsn: row.hsn || (typeof itemRef === "object" ? itemRef?.hsnCode : "") || "",
       uomId: typeof uomRef === "object" ? uomRef?._id : uomRef,
       uomShortCode:
         typeof uomRef === "object" ? uomRef?.shortCode || uomRef?.name || "" : "",
@@ -557,7 +557,7 @@ export const getOneSalesReturn = async (companyId, returnId) => {
     .populate("customerId", "name phone gstin address")
     .populate("warehouseId", "name code")
     .populate("salesInvoiceId", "invoiceNo invoiceDate grandTotal returnedAmount")
-    .populate("items.itemId", "name code hsn")
+    .populate("items.itemId", "name code hsnCode")
     .populate("items.uomId", "name shortCode")
     .lean();
 
