@@ -47,7 +47,7 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
   const returns = await PurchaseReturn.find(filter)
     .populate("vendorId", "name phone")
     .populate("warehouseId", "name code")
-    .populate("items.itemId", "name code")
+    .populate("items.itemId", "name code hsnCode")
     .select(
       "returnNo returnDate vendorId vendorSnapshot warehouseId originalInvoiceNo vendorInvoiceNo items grandTotal status"
     )
@@ -70,7 +70,10 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
       warehouse: doc.warehouseId,
       itemId: itemRow?.itemId?._id ?? itemRow?.itemId,
       itemName: typeof itemRow?.itemId === "object" ? itemRow.itemId.name : "",
-      hsn: itemRow?.hsn || "",
+      hsn:
+        itemRow?.hsn ||
+        (typeof itemRow?.itemId === "object" ? itemRow.itemId.hsnCode : "") ||
+        "",
       qty: itemRow?.qty || 0,
       rate: itemRow?.rate || 0,
       taxableValue,
@@ -89,6 +92,10 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
       : doc.items;
     return itemRows.map((itemRow) => mapRow(doc, itemRow));
   });
+
+  allRows.sort(
+    (a, b) => new Date(b.returnDate).getTime() - new Date(a.returnDate).getTime()
+  );
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));

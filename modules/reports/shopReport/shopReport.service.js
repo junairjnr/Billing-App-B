@@ -33,6 +33,7 @@ const fetchCustomerEntries = async ({
   partyId,
   dateFilter,
   partyType,
+  salesType,
 }) => {
   if (!includeCustomerSide(partyType)) return [];
 
@@ -42,6 +43,7 @@ const fetchCustomerEntries = async ({
     isActive: { $ne: false },
   };
   if (partyId) base.customerId = partyId;
+  if (salesType) base.salesType = salesType;
 
   const [invoices, returns, receipts] = await Promise.all([
     SalesInvoice.find(applyDate({ ...base, status: "confirmed" }, "invoiceDate", dateFilter))
@@ -194,6 +196,7 @@ export const getShopReport = async ({
   financialYearId,
   partyType,
   partyId,
+  salesType,
   dateFrom,
   dateTo,
   page = 1,
@@ -210,6 +213,7 @@ export const getShopReport = async ({
       partyId,
       dateFilter,
       partyType: normalizedPartyType,
+      salesType,
     }),
     fetchVendorEntries({
       companyId,
@@ -221,7 +225,7 @@ export const getShopReport = async ({
   ]);
 
   const allEntries = [...customerEntries, ...vendorEntries].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
   const totalDebit = Number(

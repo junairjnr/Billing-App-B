@@ -423,7 +423,21 @@ export const createVoucher = async ({
       );
     }
 
-    return await getOneVoucher(companyId, voucher._id);
+    return {
+      ...voucher.toObject(),
+      partySnapshot: partySnapshotFromCustomer(party),
+      bankAccountSnapshot,
+      allocations: processedAllocations.map((a) => ({
+        invoiceId: String(a.invoiceId),
+        invoiceNo: a.invoiceNo,
+        invoiceDate: a.invoiceDate,
+        invoiceTotal: a.invoiceTotal,
+        paidBefore: a.paidBefore ?? 0,
+        amountAdjusted: a.amountAdjusted,
+        balanceAfter: a.balanceAfter,
+        invoiceType: a.invoiceType,
+      })),
+    };
   });
 };
 
@@ -527,20 +541,21 @@ export const getAllVouchers = async ({
   };
 };
 
-export const getOneVoucher = async (companyId, id, voucherType) => {
+export const getOneVoucher = async (companyId, id, voucherType, session = null) => {
   const filter = { _id: id, companyId, isActive: true };
   if (voucherType) filter.voucherType = voucherType;
 
-  const voucher = await ReceiptPayment.findOne(filter)
+  let voucherQuery = ReceiptPayment.findOne(filter)
     .populate("partyId", "name phone gstin address")
-    .populate("bankAccountId", "accountName bankName accountNumber ifscCode upiId branch")
-    .lean();
+    .populate("bankAccountId", "accountName bankName accountNumber ifscCode upiId branch");
+  if (session) voucherQuery = voucherQuery.session(session);
+  const voucher = await voucherQuery.lean();
 
   if (!voucher) throw new ApiError(404, "Voucher not found");
 
-  const allocations = await Allocation.find({ receiptPaymentId: id })
-    .sort({ invoiceDate: 1 })
-    .lean();
+  let allocationQuery = Allocation.find({ receiptPaymentId: id }).sort({ invoiceDate: 1 });
+  if (session) allocationQuery = allocationQuery.session(session);
+  const allocations = await allocationQuery.lean();
 
   const party =
     voucher.partyId && typeof voucher.partyId === "object" ? voucher.partyId : null;

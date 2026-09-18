@@ -26,7 +26,18 @@ const QTY_NUM_FMT = "#,##0.##";
 const PERCENT_NUM_FMT = "#,##0.00";
 const SLNO_NUM_FMT = "0";
 
-const isSlNoColumn = (col) => col.key === "slno" || col.virtual;
+const DOC_NO_KEY_PATTERN = /invoice|return|reference|journal|voucher|receipt|payment|document/i;
+
+const isSlNoColumn = (col) =>
+  col.key === "slno" ||
+  col.key === "slNo" ||
+  col.key === "#" ||
+  col.virtual === true ||
+  /^#\s*$|^sl\s*no\.?$/i.test(String(col.header || "").trim());
+
+const isDocNoColumn = (col) =>
+  DOC_NO_KEY_PATTERN.test(col.key) ||
+  /invoice|return no|reference|journal|voucher/i.test(String(col.header || ""));
 const isQtyColumn = (col) => QTY_KEY_PATTERN.test(col.key);
 const isPercentColumn = (col) => PERCENT_KEY_PATTERN.test(col.key);
 
@@ -97,7 +108,7 @@ const computeColumnWidth = (col, header, cellValues) => {
     ...cellValues.map((value) => displayLength(value, col)),
   ];
   const maxLen = Math.max(...lengths, 0);
-  const minWidth = col.width || 12;
+  const minWidth = col.width || (isDocNoColumn(col) ? 24 : 12);
 
   return Math.min(Math.max(maxLen + 2, minWidth), 60);
 };

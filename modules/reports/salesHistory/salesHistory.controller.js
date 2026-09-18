@@ -54,7 +54,7 @@ export const salesHistory = asyncHandler(async (req, res) => {
     .populate("customerId", "name phone")
     .populate("warehouseId", "name code")
     .populate("priceLevelId", "name taxPercent")
-    .populate("items.itemId", "name code")
+    .populate("items.itemId", "name code hsnCode")
     .select(
       "invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot items grandTotal status"
     )
@@ -80,7 +80,10 @@ export const salesHistory = asyncHandler(async (req, res) => {
       warehouse: inv.warehouseId,
       itemId: itemRow?.itemId?._id ?? itemRow?.itemId,
       itemName: typeof itemRow?.itemId === "object" ? itemRow.itemId.name : "",
-      hsn: itemRow?.hsn || "",
+      hsn:
+        itemRow?.hsn ||
+        (typeof itemRow?.itemId === "object" ? itemRow.itemId.hsnCode : "") ||
+        "",
       baseRate: itemRow?.baseRate || 0,
       priceLevelPct: itemRow?.priceLevelPct || 0,
       rate: itemRow?.rate || 0,
@@ -104,6 +107,10 @@ export const salesHistory = asyncHandler(async (req, res) => {
       : inv.items;
     return itemRows.map((itemRow) => mapRow(inv, itemRow));
   });
+
+  allRows.sort(
+    (a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime()
+  );
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));

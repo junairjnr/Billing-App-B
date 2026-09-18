@@ -232,6 +232,48 @@ import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 import { normalizeAttachments } from "../../upload/upload.utils.js";
 
+const round2 = (n) => Number(Number(n).toFixed(2));
+
+const computeInvoiceTotals = ({
+  lineNetAmount,
+  totalSGST,
+  totalCGST,
+  cashDiscountPercent = 0,
+  cashDiscountAmt: cashDiscountInput = 0,
+}) => {
+  const netAmount = round2(lineNetAmount);
+  const totalTax = round2(totalSGST + totalCGST);
+  const total = round2(netAmount + totalTax);
+  const billTotal = Math.round(total);
+  const roundOff = round2(billTotal - total);
+
+  const cashDiscPct = Number(cashDiscountPercent) || 0;
+  const manualCashDisc = round2(cashDiscountInput);
+  let cashDiscountAmt =
+    manualCashDisc > 0
+      ? manualCashDisc
+      : round2(billTotal * cashDiscPct / 100);
+
+  if (cashDiscountAmt > billTotal) {
+    cashDiscountAmt = billTotal;
+  }
+
+  const grandTotal = round2(billTotal - cashDiscountAmt);
+
+  return {
+    netAmount,
+    totalSGST: round2(totalSGST),
+    totalCGST: round2(totalCGST),
+    totalTax,
+    total,
+    roundOff,
+    billTotal,
+    cashDiscountPercent: cashDiscPct,
+    cashDiscountAmt,
+    grandTotal,
+  };
+};
+
 // ── Create Purchase Invoice ───────────────────────────────────
 export const createPurchaseInvoice = async ({
   companyId,
@@ -244,6 +286,8 @@ export const createPurchaseInvoice = async ({
   items,
   notes,
   attachments,
+  cashDiscountPercent = 0,
+  cashDiscountAmt = 0,
   userId,
 }) => {
   return withTransaction(async (session) => {
@@ -315,10 +359,13 @@ export const createPurchaseInvoice = async ({
       };
     });
 
-    const totalTax   = Number((totalSGST + totalCGST).toFixed(2));
-    const total      = Number((netAmount + totalTax).toFixed(2));
-    const grandTotal = Math.round(total);
-    const roundOff   = Number((grandTotal - total).toFixed(2));
+    const totals = computeInvoiceTotals({
+      lineNetAmount: netAmount,
+      totalSGST,
+      totalCGST,
+      cashDiscountPercent,
+      cashDiscountAmt,
+    });
 
     // 5. Vendor snapshot
     const vendorSnapshot = {
@@ -339,12 +386,18 @@ export const createPurchaseInvoice = async ({
       purchaseDate: new Date(purchaseDate),
       vendorId, vendorSnapshot,
       items: processedItems,
-      netAmount: Number(netAmount.toFixed(2)),
-      totalSGST: Number(totalSGST.toFixed(2)),
-      totalCGST: Number(totalCGST.toFixed(2)),
-      totalTax, total, roundOff, grandTotal,
+      netAmount: totals.netAmount,
+      totalSGST: totals.totalSGST,
+      totalCGST: totals.totalCGST,
+      totalTax: totals.totalTax,
+      total: totals.total,
+      roundOff: totals.roundOff,
+      billTotal: totals.billTotal,
+      cashDiscountPercent: totals.cashDiscountPercent,
+      cashDiscountAmt: totals.cashDiscountAmt,
+      grandTotal: totals.grandTotal,
       paidAmount: 0,
-      balanceAmount: grandTotal,
+      balanceAmount: totals.grandTotal,
       paymentStatus: "pending",
       status: "confirmed", notes,
       attachments: normalizedAttachments,

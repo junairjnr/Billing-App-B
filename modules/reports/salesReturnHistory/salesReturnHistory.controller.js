@@ -48,7 +48,7 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
   const returns = await SalesReturn.find(filter)
     .populate("customerId", "name phone")
     .populate("warehouseId", "name code")
-    .populate("items.itemId", "name code")
+    .populate("items.itemId", "name code hsnCode")
     .select(
       "returnNo returnDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot originalInvoiceNo items grandTotal status"
     )
@@ -73,7 +73,10 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
       warehouse: doc.warehouseId,
       itemId: itemRow?.itemId?._id ?? itemRow?.itemId,
       itemName: typeof itemRow?.itemId === "object" ? itemRow.itemId.name : "",
-      hsn: itemRow?.hsn || "",
+      hsn:
+        itemRow?.hsn ||
+        (typeof itemRow?.itemId === "object" ? itemRow.itemId.hsnCode : "") ||
+        "",
       baseRate: itemRow?.baseRate || 0,
       priceLevelPct: itemRow?.priceLevelPct || 0,
       rate: itemRow?.rate || 0,
@@ -96,6 +99,10 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
       : doc.items;
     return itemRows.map((itemRow) => mapRow(doc, itemRow));
   });
+
+  allRows.sort(
+    (a, b) => new Date(b.returnDate).getTime() - new Date(a.returnDate).getTime()
+  );
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));
