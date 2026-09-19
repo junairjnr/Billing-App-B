@@ -14,6 +14,8 @@ const purchaseReturnItemSchema = new mongoose.Schema(
     uomId: { type: mongoose.Schema.Types.ObjectId, ref: "Uom", required: true },
     rate: { type: Number, required: true, min: 0 },
     qty: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0, max: 100 },
+    discountAmt: { type: Number, default: 0 },
     taxableValue: { type: Number, required: true, min: 0 },
     taxPercent: { type: Number, default: 0 },
     sgst: { type: Number, default: 0 },

@@ -10,7 +10,19 @@ import SalesReturn from "../sales/salesReturn/salesReturn.model.js";
 import PurchaseReturn from "../purchase/purchaseReturn/purchaseReturn.model.js";
 import Expense from "../expense/expense.model.js";
 import { withSalesReturnTaxTotals } from "../reports/salesReturnReport/salesReturnReport.tax.js";
-import { withPurchaseReturnTaxTotals } from "../reports/purchaseReturnReport/purchaseReturnReport.tax.js";
+import {
+  getPurchaseItemTaxAmounts,
+  withPurchaseInvoiceTaxTotals,
+} from "../reports/purchaseReport/purchaseReport.tax.js";
+import {
+  getPurchaseReturnItemTaxAmounts,
+  withPurchaseReturnTaxTotals,
+} from "../reports/purchaseReturnReport/purchaseReturnReport.tax.js";
+import {
+  compareByDateThenCreated,
+  purchaseInvoiceReportSort,
+  purchaseReturnReportSort,
+} from "../../utils/documentSort.js";
 
 const DEFAULT_GST_PERCENT = 18;
 const EXPORT_LIMIT = 10000;
@@ -36,6 +48,23 @@ const baseScope = (ctx) => ({
   isActive: true,
 });
 
+const resolveLineItemName = (item) => {
+  if (typeof item?.itemId === "object" && item.itemId?.name) return item.itemId.name;
+  return item?.itemName || item?.name || "";
+};
+
+const resolveWarehouseName = (doc) => {
+  if (typeof doc?.warehouseId === "object" && doc.warehouseId?.name) {
+    return doc.warehouseId.name;
+  }
+  return doc?.warehouseSnapshot?.name || "";
+};
+
+const resolveVendorName = (doc) =>
+  doc?.vendorSnapshot?.name ||
+  (typeof doc?.vendorId === "object" ? doc.vendorId?.name : "") ||
+  "";
+
 export const fetchOperationalReportRows = async (reportType, ctx) => {
   const { companyId, branchId, financialYearId, query = {} } = ctx;
 
@@ -59,12 +88,16 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.vendorId) filter.vendorId = query.vendorId;
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.status) filter.status = query.status;
-      return PurchaseInvoice.find(filter)
+      const rows = await PurchaseInvoice.find(filter)
         .populate("vendorId", "name phone")
-        .select("invoiceNo purchaseDate vendorSnapshot netAmount totalTax grandTotal status")
-        .sort({ purchaseDate: -1 })
+        .populate("warehouseId", "name code")
+        .select(
+          "invoiceNo purchaseDate vendorId vendorSnapshot warehouseId items netAmount totalSGST totalCGST totalTax grandTotal status"
+        )
+        .sort(purchaseInvoiceReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
+      return rows.map(withPurchaseInvoiceTaxTotals);
     }
     case "sales-return-report": {
       const filter = { ...baseScope(ctx), ...buildDateFilter(query, "returnDate") };
@@ -95,7 +128,7 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         .select(
           "returnNo returnDate returnMode originalInvoiceNo vendorSnapshot warehouseId items netAmount totalSGST totalCGST totalTax grandTotal status"
         )
-        .sort({ returnDate: -1 })
+        .sort(purchaseReturnReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
       return rows.map(withPurchaseReturnTaxTotals);
@@ -156,12 +189,12 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
       if (query.salesType) filter.salesType = query.salesType;
-      const invoices = await salesInvoiceModel.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("invoiceNo invoiceDate salesType customerSnapshot items grandTotal status").sort({ invoiceDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const invoices = await salesInvoiceModel.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items grandTotal status").sort({ invoiceDate: -1 }).limit(EXPORT_LIMIT).lean();
       const rows = [];
       for (const inv of invoices) {
         for (const item of inv.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ invoiceNo: inv.invoiceNo, date: inv.invoiceDate, salesType: inv.salesType, customer: inv.customerSnapshot?.name || "", itemName: item.name || item.itemSnapshot?.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: inv.status });
+          rows.push({ invoiceNo: inv.invoiceNo, date: inv.invoiceDate, salesType: inv.salesType, customer: inv.customerSnapshot?.name || "", priceLevel: inv.priceLevelSnapshot?.name || "", itemName: item.name || item.itemSnapshot?.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", discount: Number(item.discount) || 0, qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: inv.status });
         }
       }
       rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -171,45 +204,98 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "purchaseDate") };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.vendorId) filter.vendorId = query.vendorId;
-      const invoices = await purchaseInvoiceModel.find(filter).populate("vendorId", "name").populate("items.itemId", "name hsnCode").select("invoiceNo purchaseDate vendorSnapshot items grandTotal status").sort({ purchaseDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const invoices = await purchaseInvoiceModel.find(filter).populate("vendorId", "name").populate("warehouseId", "name code").populate("items.itemId", "name hsnCode").select("invoiceNo purchaseDate vendorId vendorSnapshot warehouseId items grandTotal status createdAt").sort(purchaseInvoiceReportSort).limit(EXPORT_LIMIT).lean();
       const rows = [];
       for (const inv of invoices) {
         for (const item of inv.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ invoiceNo: inv.invoiceNo, date: inv.purchaseDate, vendor: inv.vendorSnapshot?.name || "", itemName: item.name || item.itemSnapshot?.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: inv.status });
+          const tax = getPurchaseItemTaxAmounts(item);
+          const itemLabel = resolveLineItemName(item);
+          rows.push({
+            invoiceNo: inv.invoiceNo,
+            date: inv.purchaseDate,
+            createdAt: inv.createdAt,
+            vendor: resolveVendorName(inv),
+            warehouse: resolveWarehouseName(inv),
+            item: itemLabel,
+            itemName: itemLabel,
+            hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "",
+            discount: Number(item.discount) || 0,
+            qty: item.qty,
+            rate: item.rate,
+            taxableValue: tax.taxableValue,
+            sgst: tax.sgst,
+            cgst: tax.cgst,
+            total: tax.total,
+            status: inv.status,
+          });
         }
       }
-      rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      rows.sort(compareByDateThenCreated("date"));
       return rows;
     }
     case "sales-return-history": {
       const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "returnDate") };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
-      const returns = await SalesReturn.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate customerSnapshot items grandTotal status").sort({ returnDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const returns = await SalesReturn.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate originalInvoiceNo salesType customerSnapshot items grandTotal status").sort({ returnDate: -1 }).limit(EXPORT_LIMIT).lean();
       const rows = [];
       for (const ret of returns) {
         for (const item of ret.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ returnNo: ret.returnNo, date: ret.returnDate, customer: ret.customerSnapshot?.name || "", itemName: item.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: ret.status });
+          rows.push({ returnNo: ret.returnNo, date: ret.returnDate, originalInvoice: ret.originalInvoiceNo || "", salesType: ret.salesType || "", customer: ret.customerSnapshot?.name || "", itemName: item.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: ret.status });
         }
       }
       rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       return rows;
     }
     case "purchase-return-history": {
-      const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "returnDate") };
+      const filter = {
+        companyId,
+        financialYearId,
+        isActive: { $ne: false },
+        status: "confirmed",
+        ...buildDateFilter(query, "returnDate"),
+      };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.vendorId) filter.vendorId = query.vendorId;
-      const returns = await PurchaseReturn.find(filter).populate("vendorId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate vendorSnapshot items grandTotal status").sort({ returnDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const returns = await PurchaseReturn.find(filter)
+        .populate("vendorId", "name")
+        .populate("items.itemId", "name hsnCode")
+        .select(
+          "returnNo returnDate originalInvoiceNo vendorId vendorSnapshot items grandTotal status createdAt"
+        )
+        .sort(purchaseReturnReportSort)
+        .limit(EXPORT_LIMIT)
+        .lean();
       const rows = [];
       for (const ret of returns) {
         for (const item of ret.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ returnNo: ret.returnNo, date: ret.returnDate, vendor: ret.vendorSnapshot?.name || "", itemName: item.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: ret.status });
+          const tax = getPurchaseReturnItemTaxAmounts(item);
+          const itemLabel = resolveLineItemName(item);
+          rows.push({
+            returnNo: ret.returnNo,
+            date: ret.returnDate,
+            createdAt: ret.createdAt,
+            originalInvoice: ret.originalInvoiceNo || "",
+            originalInvoiceNo: ret.originalInvoiceNo || "",
+            vendor: resolveVendorName(ret),
+            item: itemLabel,
+            itemName: itemLabel,
+            hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "",
+            discount: Number(item.discount) || 0,
+            qty: item.qty,
+            rate: item.rate,
+            taxableValue: tax.taxableValue,
+            sgst: tax.sgst,
+            cgst: tax.cgst,
+            total: tax.total,
+            status: ret.status,
+          });
         }
       }
-      rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      rows.sort(compareByDateThenCreated("date"));
       return rows;
     }
     case "expense-report": {

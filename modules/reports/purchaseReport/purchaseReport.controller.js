@@ -1,6 +1,7 @@
 import asyncHandler  from "../../../utils/asyncHandler.js";
 import ApiResponse   from "../../../utils/ApiResponse.js";
 import PurchaseInvoice from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
+import { purchaseInvoiceReportSort } from "../../../utils/documentSort.js";
 import {
   getPurchaseInvoiceTaxTotals,
   withPurchaseInvoiceTaxTotals,
@@ -48,7 +49,7 @@ export const purchaseReport = asyncHandler(async (req, res) => {
       .populate("vendorId",    "name phone")
       .populate("warehouseId", "name code")
       .select("invoiceNo vendorInvoiceNo purchaseDate vendorId vendorSnapshot warehouseId items netAmount totalSGST totalCGST totalTax grandTotal status")
-      .sort({ purchaseDate: -1 })
+      .sort(purchaseInvoiceReportSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),

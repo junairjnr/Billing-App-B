@@ -3,6 +3,7 @@ import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import SalesInvoice from "../../sales/salesInvoice/salesInvoice.model.js";
 import PurchaseInvoice from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
+import { purchaseInvoiceReportSort } from "../../../utils/documentSort.js";
 import SalesReturn from "../../sales/salesReturn/salesReturn.model.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
 import ReceiptPayment from "../../receipt-payment/receiptPayment.model.js";
@@ -253,7 +254,7 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     PurchaseInvoice.find(invoiceFilter)
       .populate("vendorId", "name")
       .select("invoiceNo purchaseDate vendorId vendorSnapshot grandTotal paymentStatus items status")
-      .sort({ purchaseDate: -1 })
+      .sort(purchaseInvoiceReportSort)
       .limit(5)
       .lean(),
     Stock.find({
@@ -337,6 +338,10 @@ export const dashboardReport = asyncHandler(async (req, res) => {
     "purchaseReturn"
   );
 
+  const netPurchaseTotal = Number(
+    ((Number(purchaseTotal) || 0) - (Number(purchaseReturnTotal) || 0)).toFixed(2)
+  );
+
   res.json(
     new ApiResponse(200, {
       stats: {
@@ -344,6 +349,7 @@ export const dashboardReport = asyncHandler(async (req, res) => {
         purchaseTotal,
         salesReturnTotal,
         purchaseReturnTotal,
+        netPurchaseTotal,
         receiptsTotal,
         paymentsTotal,
         expensesTotal,

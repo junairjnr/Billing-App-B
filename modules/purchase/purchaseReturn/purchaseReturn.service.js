@@ -10,7 +10,12 @@ import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js"
 import { getNextPurchaseReturnNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { transactionListSort } from "../../../utils/documentSort.js";
 import { normalizeAttachments } from "../../upload/upload.utils.js";
+import {
+  applyManualReturnToInvoice,
+  findPurchaseInvoiceForManualReturn,
+} from "./purchaseReturnCredits.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -74,6 +79,8 @@ const buildPurchaseReturnLine = (invoiceLine, qty) => {
     uomId: invoiceLine.uomId,
     rate: invoiceLine.rate,
     qty,
+    discount: Number(invoiceLine.discount) || 0,
+    discountAmt: Number(((invoiceLine.discountAmt || 0) * ratio).toFixed(2)),
     taxPercent: invoiceLine.taxPercent,
     taxableValue,
     sgst,
@@ -291,6 +298,24 @@ const createManualPurchaseReturn = async ({
       );
     }
 
+    const matchedInvoice = await findPurchaseInvoiceForManualReturn({
+      companyId,
+      financialYearId,
+      vendorId,
+      referenceInvoiceNo,
+      vendorInvoiceNo,
+    });
+
+    if (matchedInvoice) {
+      const invoiceDoc = await PurchaseInvoice.findOne({
+        _id: matchedInvoice._id,
+        companyId,
+      }).session(session);
+      if (invoiceDoc) {
+        await applyManualReturnToInvoice(invoiceDoc, purchaseReturn, session);
+      }
+    }
+
     return purchaseReturn;
   });
 };
@@ -467,7 +492,7 @@ export const getAllPurchaseReturns = async ({
       .select(
         "returnNo returnDate returnMode purchaseInvoiceId originalInvoiceNo referenceInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId grandTotal status createdAt"
       )
-      .sort({ returnDate: -1 })
+      .sort(transactionListSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),

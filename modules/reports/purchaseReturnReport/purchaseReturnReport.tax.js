@@ -60,3 +60,13 @@ export const withPurchaseReturnTaxTotals = (doc) => {
   const tax = getPurchaseReturnTaxTotals(doc);
   return { ...doc, ...tax };
 };
+
+export const getPurchaseReturnItemTaxAmounts = (item) => {
+  const taxableValue = lineTaxableValue(item);
+  const { sgst, cgst } = lineTaxAmounts(item);
+  const total =
+    item?.total > 0
+      ? Number(item.total)
+      : Number((taxableValue + sgst + cgst).toFixed(2));
+  return { taxableValue, sgst, cgst, total };
+};

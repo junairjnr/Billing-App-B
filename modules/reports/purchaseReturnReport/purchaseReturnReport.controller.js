@@ -1,6 +1,7 @@
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
+import { purchaseReturnReportSort } from "../../../utils/documentSort.js";
 import {
   getPurchaseReturnTaxTotals,
   withPurchaseReturnTaxTotals,
@@ -50,7 +51,7 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
       .select(
         "returnNo returnDate returnMode purchaseInvoiceId originalInvoiceNo referenceInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId items netAmount totalSGST totalCGST totalTax grandTotal status"
       )
-      .sort({ returnDate: -1 })
+      .sort(purchaseReturnReportSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),

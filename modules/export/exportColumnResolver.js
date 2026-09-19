@@ -9,50 +9,46 @@ export const SLNO_COLUMN = {
   get: (_row, index) => index + 1,
 };
 
+/**
+ * Column keys the UI sends, mapped to the config keys that can serve them in
+ * priority order. Keeps one Excel column per on-screen column.
+ */
+const KEY_ALIASES = {
+  date: ["date", "purchaseDate", "invoiceDate", "entryDate", "returnDate", "createdAt"],
+  type: ["type", "salesType", "accountType", "entryType", "movementType"],
+  name: ["name", "accountName"],
+  account: ["accountName"],
+  customer: ["customer", "customerSnapshot", "name"],
+  vendor: ["vendor", "vendorSnapshot", "name"],
+  party: ["party", "partyName"],
+  item: ["item", "itemName"],
+  itemName: ["itemName", "item"],
+  originalInvoice: ["originalInvoice", "originalInvoiceNo"],
+  originalInvoiceNo: ["originalInvoiceNo", "originalInvoice"],
+  tax: ["tax", "totalTax"],
+  debit: ["debit", "totalDebit", "debitBalance"],
+  credit: ["credit", "totalCredit", "creditBalance"],
+  amount: ["amount", "totalAmount", "grandTotal"],
+  grandTotal: ["grandTotal", "amount"],
+  outstanding: ["outstanding", "balance"],
+  balance: ["balance", "balanceAmount", "balanceQty"],
+  mode: ["mode", "paymentMode"],
+  reference: ["reference", "referenceNo"],
+  source: ["source", "referenceType"],
+  movement: ["movement", "movementType"],
+  receiptNo: ["receiptNo", "voucherNo"],
+  paymentNo: ["paymentNo", "voucherNo"],
+  payment: ["payment", "paymentStatus"],
+  partyType: ["partyType", "type"],
+  unit: ["unit", "uom"],
+};
+
 const findConfigColumn = (config, key) => {
-  const direct = config.columns.find((col) => col.key === key);
-  if (direct) return direct;
+  const candidates = [key, ...(KEY_ALIASES[key] ?? [])];
 
-  const aliasMap = {
-    tax: "totalTax",
-    debit: "debitBalance",
-    credit: "creditBalance",
-    account: "accountName",
-    customer: "customerSnapshot",
-    vendor: "vendorSnapshot",
-  };
-
-  if (aliasMap[key]) {
-    const aliased = config.columns.find((col) => col.key === aliasMap[key]);
-    if (aliased) return aliased;
-  }
-
-  if (key === "date") {
-    for (const dateKey of [
-      "date",
-      "purchaseDate",
-      "invoiceDate",
-      "entryDate",
-      "returnDate",
-      "createdAt",
-    ]) {
-      const col = config.columns.find((c) => c.key === dateKey);
-      if (col) return col;
-    }
-  }
-
-  if (key === "type") {
-    for (const typeKey of ["salesType", "accountType", "entryType", "movementType"]) {
-      const col = config.columns.find((c) => c.key === typeKey);
-      if (col) return col;
-    }
-  }
-
-  if (key === "name") {
-    for (const nameKey of ["name", "accountName"]) {
-      const col = config.columns.find((c) => c.key === nameKey);
-      if (col) return col;
-    }
+  for (const candidate of candidates) {
+    const col = config.columns.find((c) => c.key === candidate);
+    if (col) return col;
   }
 
   return null;

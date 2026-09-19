@@ -2,7 +2,9 @@ import customerModel from "../masters/customer/customer.model.js";
 import itemModel from "../masters/item/item.model.js";
 import Warehouse from "../warehouse/warehouse.model.js";
 import * as salesService from "../sales/salesInvoice/salesInvoice.service.js";
+import * as salesReturnService from "../sales/salesReturn/salesReturn.service.js";
 import * as purchaseService from "../purchase/purchaseInvoice/purchaseInvoice.services.js";
+import * as purchaseReturnService from "../purchase/purchaseReturn/purchaseReturn.service.js";
 import * as receiptService from "../receipt-payment/receiptPayment.service.js";
 import * as expenseService from "../expense/expense.service.js";
 import * as journalService from "../accounting/journal/journal.service.js";
@@ -12,6 +14,25 @@ import { getReportConfig } from "./export.config.js";
 import { fetchOperationalReportRows } from "./exportReportData.js";
 import { resolveSelectedColumns } from "./exportColumnResolver.js";
 
+const EXPORT_ROW_LIMIT = 10000;
+const EXPORT_FILTER_KEYS = [
+  "search",
+  "type",
+  "salesType",
+  "salesInvoiceId",
+  "purchaseInvoiceId",
+  "partyId",
+  "customerId",
+  "vendorId",
+  "paymentMode",
+  "dateFrom",
+  "dateTo",
+  "status",
+  "category",
+  "accountType",
+  "referenceType",
+];
+
 const scope = (ctx) => ({
   companyId: ctx.companyId,
   branchId: ctx.branchId,
@@ -20,13 +41,45 @@ const scope = (ctx) => ({
   dateTo: ctx.query?.dateTo,
 });
 
+const plainQueryValue = (value) => {
+  if (typeof value === "string") return value.trim().slice(0, 200);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
+};
+
+/**
+ * Client query may only carry known filters and paging. Tenant keys and
+ * operator objects are dropped so a request can never widen scope.
+ */
+const exportQuery = (ctx) => {
+  const query = ctx.query ?? {};
+  const requestedLimit = Number(query.limit);
+  const requestedPage = Number(query.page);
+  const filters = {};
+
+  for (const key of EXPORT_FILTER_KEYS) {
+    const value = plainQueryValue(query[key]);
+    if (value !== undefined && value !== "") filters[key] = value;
+  }
+
+  return {
+    ...filters,
+    page: requestedPage > 0 ? requestedPage : 1,
+    limit:
+      requestedLimit > 0
+        ? Math.min(requestedLimit, EXPORT_ROW_LIMIT)
+        : EXPORT_ROW_LIMIT,
+  };
+};
+
 const fetchRows = async (reportType, ctx) => {
-  const { companyId, query = {} } = ctx;
+  const { companyId } = ctx;
 
   switch (reportType) {
     case "customers": {
       const filter = { companyId };
-      if (query.type) filter.type = query.type;
+      const type = exportQuery(ctx).type;
+      if (typeof type === "string" && type) filter.type = type;
       return customerModel
         .find(filter)
         .select("name email phone gstin customerType address type")
@@ -37,7 +90,10 @@ const fetchRows = async (reportType, ctx) => {
       return itemModel
         .find({ companyId })
         .select("name code hsnCode price taxPercent uomId categoryId")
-        .populate([{ path: "categoryId", select: "name" }, { path: "uomId", select: "name" }])
+        .populate([
+          { path: "categoryId", select: "name" },
+          { path: "uomId", select: "name shortCode" },
+        ])
         .sort({ name: 1 })
         .lean();
     case "warehouses":
@@ -47,9 +103,7 @@ const fetchRows = async (reportType, ctx) => {
         companyId,
         branchId: ctx.branchId,
         financialYearId: ctx.financialYearId,
-        page: 1,
-        limit: 10000,
-        ...query,
+        ...exportQuery(ctx),
       });
       return result.data || result;
     }
@@ -58,35 +112,49 @@ const fetchRows = async (reportType, ctx) => {
         companyId,
         branchId: ctx.branchId,
         financialYearId: ctx.financialYearId,
-        page: 1,
-        limit: 10000,
-        ...query,
+        ...exportQuery(ctx),
+      });
+      return result.data || result;
+    }
+    case "sales-returns": {
+      const result = await salesReturnService.getAllSalesReturns({
+        companyId,
+        branchId: ctx.branchId,
+        financialYearId: ctx.financialYearId,
+        ...exportQuery(ctx),
+      });
+      return result.data || result;
+    }
+    case "purchase-returns": {
+      const result = await purchaseReturnService.getAllPurchaseReturns({
+        companyId,
+        branchId: ctx.branchId,
+        financialYearId: ctx.financialYearId,
+        ...exportQuery(ctx),
       });
       return result.data || result;
     }
     case "receipts": {
+      const q = exportQuery(ctx);
       const result = await receiptService.getAllVouchers({
         companyId,
         branchId: ctx.branchId,
         financialYearId: ctx.financialYearId,
         voucherType: "receipt",
-        partyId: query.partyId || query.customerId,
-        page: 1,
-        limit: 10000,
-        ...query,
+        ...q,
+        partyId: q.partyId || q.customerId,
       });
       return result.data || result;
     }
     case "payments": {
+      const q = exportQuery(ctx);
       const result = await receiptService.getAllVouchers({
         companyId,
         branchId: ctx.branchId,
         financialYearId: ctx.financialYearId,
         voucherType: "payment",
-        partyId: query.partyId || query.vendorId,
-        page: 1,
-        limit: 10000,
-        ...query,
+        ...q,
+        partyId: q.partyId || q.vendorId,
       });
       return result.data || result;
     }
@@ -97,7 +165,7 @@ const fetchRows = async (reportType, ctx) => {
           branchId: ctx.branchId,
           financialYearId: ctx.financialYearId,
         },
-        { page: 1, limit: 10000, ...query }
+        exportQuery(ctx)
       );
       return result.data || result;
     }
@@ -106,9 +174,7 @@ const fetchRows = async (reportType, ctx) => {
         companyId,
         branchId: ctx.branchId,
         financialYearId: ctx.financialYearId,
-        page: 1,
-        limit: 10000,
-        ...query,
+        ...exportQuery(ctx),
       });
       return result.data || result;
     }
@@ -119,7 +185,7 @@ const fetchRows = async (reportType, ctx) => {
     case "customer-balances":
       return reportsService.getAllPartyBalances(scope(ctx), "customer");
     case "chart-of-accounts":
-      return coaService.listAccounts(companyId, query);
+      return coaService.listAccounts(companyId, exportQuery(ctx));
     case "profit-loss": {
       const data = await reportsService.getProfitAndLoss(scope(ctx));
       return [

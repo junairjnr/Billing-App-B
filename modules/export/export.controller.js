@@ -16,7 +16,12 @@ export const downloadExcel = asyncHandler(async (req, res) => {
   const config = getReportConfig(reportType);
   if (!config) throw new ApiError(404, "Export report type not found");
 
-  const { columns = [] } = req.body || {};
+  const rawColumns = req.body?.columns;
+  const columns = Array.isArray(rawColumns)
+    ? rawColumns
+        .filter((key) => typeof key === "string" && key.length > 0 && key.length <= 64)
+        .slice(0, 40)
+    : [];
   const result = await exportReport(
     reportType,
     {

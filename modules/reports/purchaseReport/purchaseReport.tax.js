@@ -60,3 +60,13 @@ export const withPurchaseInvoiceTaxTotals = (invoice) => {
   const tax = getPurchaseInvoiceTaxTotals(invoice);
   return { ...invoice, ...tax };
 };
+
+export const getPurchaseItemTaxAmounts = (item) => {
+  const taxableValue = lineTaxableValue(item);
+  const { sgst, cgst } = lineTaxAmounts(item);
+  const total =
+    item?.total > 0
+      ? Number(item.total)
+      : Number((taxableValue + sgst + cgst).toFixed(2));
+  return { taxableValue, sgst, cgst, total };
+};

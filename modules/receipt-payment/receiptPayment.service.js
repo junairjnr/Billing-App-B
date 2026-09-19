@@ -1,9 +1,11 @@
+import mongoose from "mongoose";
 import ReceiptPayment from "./receiptPayment.model.js";
 import Allocation from "./allocation.model.js";
 import SalesInvoice from "../sales/salesInvoice/salesInvoice.model.js";
 import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import Customer from "../masters/customer/customer.model.js";
 import BankAccount from "../masters/bank/bank.model.js";
+import { persistUnlinkedManualReturnsForVendor } from "../purchase/purchaseReturn/purchaseReturnCredits.js";
 import ApiError from "../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
 import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
@@ -59,10 +61,11 @@ const getInvoiceModel = (invoiceType) =>
   invoiceType === "sales" ? SalesInvoice : PurchaseInvoice;
 
 const partyObjectId = (partyId) => {
-  if (!partyId || !String(partyId).match(/^[a-f\d]{24}$/i)) {
+  const id = String(partyId || "");
+  if (!/^[a-f\d]{24}$/i.test(id)) {
     throw new ApiError(400, "Invalid party id");
   }
-  return partyId;
+  return new mongoose.Types.ObjectId(id);
 };
 
 const computeInvoiceBalance = (inv) => {
@@ -142,6 +145,10 @@ export const getOutstandingInvoices = async ({
 
   await syncLegacyPaymentFields(Model, baseFilter);
 
+  if (invoiceType === "purchase") {
+    await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyOid);
+  }
+
   const invoices = await Model.find({
     ...baseFilter,
     status: "confirmed",
@@ -177,11 +184,20 @@ export const getOutstandingInvoices = async ({
   const summary = mapped.reduce(
     (acc, inv) => ({
       invoiceCount: acc.invoiceCount + 1,
+      totalGross: Number((acc.totalGross + inv.grandTotal).toFixed(2)),
+      totalReturns: Number((acc.totalReturns + inv.returnedAmount).toFixed(2)),
       totalAmount: Number((acc.totalAmount + inv.effectiveTotal).toFixed(2)),
       totalPaid: Number((acc.totalPaid + inv.paidAmount).toFixed(2)),
       totalOutstanding: Number((acc.totalOutstanding + inv.balanceAmount).toFixed(2)),
     }),
-    { invoiceCount: 0, totalAmount: 0, totalPaid: 0, totalOutstanding: 0 }
+    {
+      invoiceCount: 0,
+      totalGross: 0,
+      totalReturns: 0,
+      totalAmount: 0,
+      totalPaid: 0,
+      totalOutstanding: 0,
+    }
   );
 
   const outstanding = mapped.filter((inv) => inv.balanceAmount > 0.009);
@@ -257,10 +273,14 @@ export const createVoucher = async ({
   notes,
   userId,
 }) => {
+  const invoiceType = voucherType === "receipt" ? "sales" : "purchase";
+  if (invoiceType === "purchase") {
+    await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyId);
+  }
+
   return withTransaction(async (session) => {
     const partyType = voucherType === "receipt" ? "customer" : "vendor";
     const partyTypeFilter = voucherType === "receipt" ? "sales" : "purchase";
-    const invoiceType = voucherType === "receipt" ? "sales" : "purchase";
 
     const party = await Customer.findOne({
       _id: partyId,
@@ -494,7 +514,7 @@ export const getAllVouchers = async ({
         $group: {
           _id: null,
           count: { $sum: 1 },
-          totalAmount: { $sum: "$totalAmount" },
+          totalAmount: { $sum: { $ifNull: ["$totalAmount", 0] } },
         },
       },
     ]),

@@ -3,6 +3,10 @@
 import ApiResponse from "../../../utils/ApiResponse.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import purchaseInvoiceModel from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
+import {
+  compareByDateThenCreated,
+  purchaseInvoiceReportSort,
+} from "../../../utils/documentSort.js";
 
 const DEFAULT_GST_PERCENT = 18;
 
@@ -54,9 +58,9 @@ export const purchaseHistory = asyncHandler(async (req, res) => {
     .populate("warehouseId", "name code")
     .populate("items.itemId", "name code hsnCode")
     .select(
-      "invoiceNo purchaseDate vendorId vendorSnapshot warehouseId items grandTotal status"
+      "invoiceNo purchaseDate vendorId vendorSnapshot warehouseId items grandTotal status createdAt"
     )
-    .sort({ purchaseDate: -1 })
+    .sort(purchaseInvoiceReportSort)
     .lean();
 
   const mapRow = (inv, itemRow) => {
@@ -75,6 +79,7 @@ export const purchaseHistory = asyncHandler(async (req, res) => {
       invoiceNo: inv.invoiceNo,
       invoiceId: inv._id,
       purchaseDate: inv.purchaseDate,
+      createdAt: inv.createdAt,
       vendor:
         typeof inv.vendorId === "object" ? inv.vendorId : inv.vendorSnapshot,
       warehouse: inv.warehouseId,
@@ -84,6 +89,8 @@ export const purchaseHistory = asyncHandler(async (req, res) => {
         itemRow?.hsn ||
         (typeof itemRow?.itemId === "object" ? itemRow.itemId.hsnCode : "") ||
         "",
+      discount: Number(itemRow?.discount) || 0,
+      discountAmt: Number(itemRow?.discountAmt) || 0,
       qty: itemRow?.qty || 0,
       rate: itemRow?.rate || 0,
       taxableValue,
@@ -105,9 +112,7 @@ export const purchaseHistory = asyncHandler(async (req, res) => {
     return itemRows.map((itemRow) => mapRow(inv, itemRow));
   });
 
-  allRows.sort(
-    (a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()
-  );
+  allRows.sort(compareByDateThenCreated("purchaseDate"));
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));

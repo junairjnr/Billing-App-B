@@ -1,6 +1,10 @@
 import ApiResponse from "../../../utils/ApiResponse.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
+import {
+  compareByDateThenCreated,
+  purchaseReturnReportSort,
+} from "../../../utils/documentSort.js";
 
 const DEFAULT_GST_PERCENT = 18;
 
@@ -49,9 +53,9 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
     .populate("warehouseId", "name code")
     .populate("items.itemId", "name code hsnCode")
     .select(
-      "returnNo returnDate vendorId vendorSnapshot warehouseId originalInvoiceNo vendorInvoiceNo items grandTotal status"
+      "returnNo returnDate vendorId vendorSnapshot warehouseId originalInvoiceNo vendorInvoiceNo items grandTotal status createdAt"
     )
-    .sort({ returnDate: -1 })
+    .sort(purchaseReturnReportSort)
     .lean();
 
   const mapRow = (doc, itemRow) => {
@@ -64,6 +68,7 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
       returnNo: doc.returnNo,
       returnId: doc._id,
       returnDate: doc.returnDate,
+      createdAt: doc.createdAt,
       originalInvoiceNo: doc.originalInvoiceNo,
       vendorInvoiceNo: doc.vendorInvoiceNo,
       vendor: typeof doc.vendorId === "object" ? doc.vendorId : doc.vendorSnapshot,
@@ -74,6 +79,8 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
         itemRow?.hsn ||
         (typeof itemRow?.itemId === "object" ? itemRow.itemId.hsnCode : "") ||
         "",
+      discount: Number(itemRow?.discount) || 0,
+      discountAmt: Number(itemRow?.discountAmt) || 0,
       qty: itemRow?.qty || 0,
       rate: itemRow?.rate || 0,
       taxableValue,
@@ -93,9 +100,7 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
     return itemRows.map((itemRow) => mapRow(doc, itemRow));
   });
 
-  allRows.sort(
-    (a, b) => new Date(b.returnDate).getTime() - new Date(a.returnDate).getTime()
-  );
+  allRows.sort(compareByDateThenCreated("returnDate"));
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));
