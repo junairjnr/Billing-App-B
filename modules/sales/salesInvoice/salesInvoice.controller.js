@@ -3,7 +3,7 @@ import ApiResponse  from "../../../utils/ApiResponse.js";
 import * as salesService from "./salesInvoice.service.js";
 
 const getAll = asyncHandler(async (req, res) => {
-  const { page, limit, search, salesType } = req.query;
+  const { page, limit, search, salesType, customerId } = req.query;
   const data = await salesService.getAllSalesInvoices({
     companyId:       req.companyId,
     branchId:        req.branchId,
@@ -12,6 +12,7 @@ const getAll = asyncHandler(async (req, res) => {
     limit:           Number(limit) || 20,
     search,
     salesType,
+    customerId,
   });
   res.json(new ApiResponse(200, data));
 });

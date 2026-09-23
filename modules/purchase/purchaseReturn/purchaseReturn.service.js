@@ -480,7 +480,14 @@ export const getAllPurchaseReturns = async ({
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
-  if (safeSearch) filter.returnNo = regexContains(safeSearch);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [
+      { returnNo: pattern },
+      { originalInvoiceNo: pattern },
+      { "vendorSnapshot.name": pattern },
+    ];
+  }
   if (purchaseInvoiceId) filter.purchaseInvoiceId = purchaseInvoiceId;
 
   const skip = (Number(page) - 1) * Number(limit);

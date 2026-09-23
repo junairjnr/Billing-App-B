@@ -3,7 +3,7 @@ import asyncHandler from "../../../utils/asyncHandler.js";
 import { getShopReport } from "./shopReport.service.js";
 
 export const shopReport = asyncHandler(async (req, res) => {
-  const { partyType, partyId, customerId, vendorId, salesType, dateFrom, dateTo, page, limit } =
+  const { partyType, partyId, customerId, vendorId, salesType, dateFrom, dateTo, search, page, limit } =
     req.query;
 
   const data = await getShopReport({
@@ -14,6 +14,7 @@ export const shopReport = asyncHandler(async (req, res) => {
     salesType,
     dateFrom,
     dateTo,
+    search,
     page,
     limit,
   });

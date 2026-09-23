@@ -22,7 +22,9 @@ const NUMERIC_KEY_PATTERN = new RegExp(
 );
 
 const CURRENCY_NUM_FMT = '"Rs. "#,##0.00';
-const QTY_NUM_FMT = "#,##0.##";
+/** Excel prints a trailing "." for whole numbers with "#,##0.##", so quantities
+ *  use General: 12 stays "12" and 12.5 stays "12.5". */
+const QTY_NUM_FMT = "General";
 const PERCENT_NUM_FMT = "#,##0.00";
 const SLNO_NUM_FMT = "0";
 

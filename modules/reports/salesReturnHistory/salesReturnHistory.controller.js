@@ -1,6 +1,11 @@
 import ApiResponse from "../../../utils/ApiResponse.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import SalesReturn from "../../sales/salesReturn/salesReturn.model.js";
+import {
+  compareByDateThenCreated,
+  salesReturnReportSort,
+} from "../../../utils/documentSort.js";
+import { reportSearchMatcher } from "../reportSearch.js";
 
 const SGST_RATE = 9;
 const CGST_RATE = 9;
@@ -21,7 +26,9 @@ const lineTax = (itemRow) => {
 };
 
 export const salesReturnHistory = asyncHandler(async (req, res) => {
-  const { itemId, customerId, salesType, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+  const { itemId, customerId, salesType, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+
+  const matchesSearch = reportSearchMatcher(search);
 
   const filter = {
     companyId: req.companyId,
@@ -50,9 +57,9 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
     .populate("warehouseId", "name code")
     .populate("items.itemId", "name code hsnCode")
     .select(
-      "returnNo returnDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot originalInvoiceNo items grandTotal status"
+      "returnNo returnDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot originalInvoiceNo items grandTotal status createdAt"
     )
-    .sort({ returnDate: -1 })
+    .sort(salesReturnReportSort)
     .lean();
 
   const mapRow = (doc, itemRow) => {
@@ -65,6 +72,7 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
       returnNo: doc.returnNo,
       returnId: doc._id,
       returnDate: doc.returnDate,
+      createdAt: doc.createdAt,
       originalInvoiceNo: doc.originalInvoiceNo,
       salesType: doc.salesType,
       customer:
@@ -90,19 +98,21 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
     };
   };
 
-  const allRows = returns.flatMap((doc) => {
-    const itemRows = itemId
-      ? doc.items.filter(
-          (row) =>
-            row.itemId?._id?.toString() === itemId || row.itemId?.toString() === itemId
-        )
-      : doc.items;
-    return itemRows.map((itemRow) => mapRow(doc, itemRow));
-  });
+  const allRows = returns
+    .flatMap((doc) => {
+      const itemRows = itemId
+        ? doc.items.filter(
+            (row) =>
+              row.itemId?._id?.toString() === itemId || row.itemId?.toString() === itemId
+          )
+        : doc.items;
+      return itemRows.map((itemRow) => mapRow(doc, itemRow));
+    })
+    .filter((row) =>
+      matchesSearch(row.returnNo, row.originalInvoiceNo, row.customer?.name, row.itemName)
+    );
 
-  allRows.sort(
-    (a, b) => new Date(b.returnDate).getTime() - new Date(a.returnDate).getTime()
-  );
+  allRows.sort(compareByDateThenCreated("returnDate"));
 
   const total = allRows.length;
   const rows = allRows.slice(skip, skip + Number(limit));

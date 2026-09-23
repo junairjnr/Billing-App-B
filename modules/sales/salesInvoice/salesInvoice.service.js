@@ -10,7 +10,10 @@ import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js"
 import { postSalesInvoice } from "../../accounting/journal/posting.service.js";
 import { getNextSalesInvoiceNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
-import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { optionalObjectId, optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { transactionListSort } from "../../../utils/documentSort.js";
+import { persistUnlinkedManualReturnsForCustomer } from "../salesReturn/salesReturnCredits.js";
+import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
 import Branch from "../../branch/branch.model.js";
 import {
   calculateLineGst,
@@ -305,12 +308,17 @@ export const createSalesInvoice = async ({
 // ── Get all sales invoices ────────────────────────────────────
 export const getAllSalesInvoices = async ({
   companyId, branchId, financialYearId,
-  page = 1, limit = 20, search = "", salesType,
+  page = 1, limit = 20, search = "", salesType, customerId,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
-  if (safeSearch) filter.invoiceNo = regexContains(safeSearch);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [{ invoiceNo: pattern }, { "customerSnapshot.name": pattern }];
+  }
   if (salesType) filter.salesType = salesType;
+  const safeCustomerId = optionalObjectId(customerId, "customer id");
+  if (safeCustomerId) filter.customerId = safeCustomerId;
 
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
@@ -318,15 +326,16 @@ export const getAllSalesInvoices = async ({
       .populate("customerId",   "name phone")
       .populate("warehouseId",  "name code")
       .populate("priceLevelId", "name taxPercent")
-      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal paidAmount balanceAmount paymentStatus saleMode status createdAt")
-      .sort({ invoiceDate: -1 })
+      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal returnedAmount paidAmount balanceAmount paymentStatus saleMode status createdAt cashDiscountAmt items.discountAmt")
+      .sort(transactionListSort)
       .skip(skip).limit(limit).lean(),
     SalesInvoice.countDocuments(filter),
   ]);
 
-  const enriched = data.map((inv) => ({
+  const enriched = data.map(({ items, ...inv }) => ({
     ...inv,
     customerSnapshot: resolveCustomerSnapshot(inv),
+    discountAmount: getDocumentDiscountAmount({ items, ...inv }),
   }));
 
   return {
@@ -340,6 +349,19 @@ export const getAllSalesInvoices = async ({
 
 // ── Get one sales invoice ─────────────────────────────────────
 export const getOneSalesInvoice = async (companyId, invoiceId) => {
+  const meta = await SalesInvoice.findOne({ _id: invoiceId, companyId })
+    .select("companyId financialYearId customerId")
+    .lean();
+  if (!meta) throw new ApiError(404, "Sales invoice not found");
+
+  const customerId =
+    typeof meta.customerId === "object" ? meta.customerId._id : meta.customerId;
+  await persistUnlinkedManualReturnsForCustomer(
+    meta.companyId,
+    meta.financialYearId,
+    customerId
+  );
+
   const invoice = await SalesInvoice.findOne({ _id: invoiceId, companyId })
     .populate("customerId",    "name phone gstin address")
     .populate("warehouseId",   "name code")

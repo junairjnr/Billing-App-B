@@ -12,12 +12,21 @@ import ApiError from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
 import { getNextSalesReturnNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
-import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import {
+  optionalObjectId,
+  optionalSearchString,
+} from "../../../utils/sanitizeInput.js";
+import { transactionListSort } from "../../../utils/documentSort.js";
 import {
   calculateLineGst,
   DEFAULT_GST_PERCENT,
   resolvePartyStateCode,
 } from "../../../utils/gstTax.js";
+import {
+  applyManualReturnToInvoice,
+  findSalesInvoiceForManualReturn,
+} from "./salesReturnCredits.js";
+import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -358,6 +367,23 @@ const createManualSalesReturn = async ({
       );
     }
 
+    const matchedInvoice = await findSalesInvoiceForManualReturn({
+      companyId,
+      financialYearId,
+      customerId,
+      referenceInvoiceNo,
+    });
+
+    if (matchedInvoice) {
+      const invoiceDoc = await SalesInvoice.findOne({
+        _id: matchedInvoice._id,
+        companyId,
+      }).session(session);
+      if (invoiceDoc) {
+        await applyManualReturnToInvoice(invoiceDoc, salesReturn, session);
+      }
+    }
+
     return salesReturn;
   });
 };
@@ -520,12 +546,22 @@ export const getAllSalesReturns = async ({
   search = "",
   salesType,
   salesInvoiceId,
+  customerId,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
-  if (safeSearch) filter.returnNo = regexContains(safeSearch);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [
+      { returnNo: pattern },
+      { originalInvoiceNo: pattern },
+      { "customerSnapshot.name": pattern },
+    ];
+  }
   if (salesType) filter.salesType = salesType;
   if (salesInvoiceId) filter.salesInvoiceId = salesInvoiceId;
+  const safeCustomerId = optionalObjectId(customerId, "customer id");
+  if (safeCustomerId) filter.customerId = safeCustomerId;
 
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
@@ -534,17 +570,22 @@ export const getAllSalesReturns = async ({
       .populate("warehouseId", "name code")
       .populate("salesInvoiceId", "invoiceNo invoiceDate")
       .select(
-        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal status createdAt"
+        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal status createdAt items.discountAmt"
       )
-      .sort({ returnDate: -1 })
+      .sort(transactionListSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),
     SalesReturn.countDocuments(filter),
   ]);
 
+  const enriched = data.map(({ items, ...row }) => ({
+    ...row,
+    discountAmount: getDocumentDiscountAmount({ items }),
+  }));
+
   return {
-    data,
+    data: enriched,
     total,
     page: Number(page),
     totalPages: Math.ceil(total / Number(limit)),

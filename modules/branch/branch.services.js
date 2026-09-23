@@ -1,5 +1,7 @@
 import Branch  from "./branch.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { regexContains } from "../../utils/escapeRegex.js";
 
 const createBranch = async (companyId, payload) => {
   // Only one HO per company
@@ -10,8 +12,14 @@ const createBranch = async (companyId, payload) => {
   return Branch.create({ ...payload, companyId });
 };
 
-const getAll = async (companyId) => {
-  return Branch.find({ companyId, isActive: true }).sort({ isHeadOffice: -1, name: 1 });
+const getAll = async (companyId, { search = "" } = {}) => {
+  const filter = { companyId, isActive: true };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [{ name: pattern }, { code: pattern }];
+  }
+  return Branch.find(filter).sort({ isHeadOffice: -1, name: 1 });
 };
 
 const getOne = async (companyId, branchId) => {

@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import Expense from "../../expense/expense.model.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 const toObjectId = (value) => {
   if (!value) return null;
@@ -13,7 +15,7 @@ const toObjectId = (value) => {
 };
 
 export const expenseReport = asyncHandler(async (req, res) => {
-  const { category, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+  const { category, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
 
   const filter = {
     companyId: toObjectId(req.companyId),
@@ -32,6 +34,12 @@ export const expenseReport = asyncHandler(async (req, res) => {
       end.setHours(23, 59, 59, 999);
       filter.date.$lte = end;
     }
+  }
+
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [{ expenseNo: pattern }, { title: pattern }];
   }
 
   const skip = (Number(page) - 1) * Number(limit);

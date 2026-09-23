@@ -5,6 +5,7 @@ import {
   compareByDateThenCreated,
   purchaseReturnReportSort,
 } from "../../../utils/documentSort.js";
+import { reportSearchMatcher } from "../reportSearch.js";
 
 const DEFAULT_GST_PERCENT = 18;
 
@@ -25,7 +26,9 @@ const lineTax = (itemRow) => {
 };
 
 export const purchaseReturnHistory = asyncHandler(async (req, res) => {
-  const { itemId, vendorId, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+  const { itemId, vendorId, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+
+  const matchesSearch = reportSearchMatcher(search);
 
   const filter = {
     companyId: req.companyId,
@@ -90,15 +93,19 @@ export const purchaseReturnHistory = asyncHandler(async (req, res) => {
     };
   };
 
-  const allRows = returns.flatMap((doc) => {
-    const itemRows = itemId
-      ? doc.items.filter(
-          (row) =>
-            row.itemId?._id?.toString() === itemId || row.itemId?.toString() === itemId
-        )
-      : doc.items;
-    return itemRows.map((itemRow) => mapRow(doc, itemRow));
-  });
+  const allRows = returns
+    .flatMap((doc) => {
+      const itemRows = itemId
+        ? doc.items.filter(
+            (row) =>
+              row.itemId?._id?.toString() === itemId || row.itemId?.toString() === itemId
+          )
+        : doc.items;
+      return itemRows.map((itemRow) => mapRow(doc, itemRow));
+    })
+    .filter((row) =>
+      matchesSearch(row.returnNo, row.originalInvoiceNo, row.vendor?.name, row.itemName)
+    );
 
   allRows.sort(compareByDateThenCreated("returnDate"));
 

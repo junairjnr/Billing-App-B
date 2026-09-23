@@ -23,6 +23,32 @@ export const DOCUMENT_TYPES = {
 
 const voucherPrefix = (voucherType) => (voucherType === "receipt" ? "RCPT" : "PAY");
 
+/** Company code used in front of every document number, e.g. PKS */
+const getCompanyCode = async (companyId) => {
+  const company = await Company.findById(companyId).select("code name");
+  if (!company) throw new ApiError(404, "Company not found");
+  const companyCode = company.code?.toUpperCase();
+  if (!companyCode) {
+    throw new ApiError(
+      400,
+      "Company code not set. Set company code in company settings before creating vouchers."
+    );
+  }
+  return companyCode;
+};
+
+/** Next sequence from a PKS/RCPT/2026-27/0001 style number */
+const nextSlashSequence = async (Model, field, filter, prefix, pad = 4) => {
+  const last = await Model.findOne(
+    { ...filter, [field]: { $regex: `^${prefix.replace(/\//g, "\\/")}` } },
+    { [field]: 1 },
+    { sort: { createdAt: -1 } }
+  );
+
+  const lastNo = last ? parseInt(String(last[field]).split("/").pop(), 10) || 0 : 0;
+  return `${prefix}${String(lastNo + 1).padStart(pad, "0")}`;
+};
+
 /** Sales: PKS/WH/2026-27/01 or PKS/RT/2026-27/01 */
 export const getNextSalesInvoiceNo = async (companyId, financialYearId, salesType) => {
   const [fy, company] = await Promise.all([
@@ -161,41 +187,40 @@ export const getNextPurchaseReturnNo = async (companyId, financialYearId) => {
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Receipt / Payment: RCPT-2026-2027-0001 or PAY-2026-2027-0001 */
+/** Receipt / Payment: PKS/RCPT/2026-27/0001 or PKS/PAY/2026-27/0001 */
 export const getNextVoucherNo = async (companyId, financialYearId, voucherType) => {
-  const fy = await FinancialYear.findById(financialYearId);
+  const [fy, companyCode] = await Promise.all([
+    FinancialYear.findById(financialYearId),
+    getCompanyCode(companyId),
+  ]);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const prefix = `${voucherPrefix(voucherType)}-${getFYDocumentCode(fy.label)}`;
+  const prefix = `${companyCode}/${voucherPrefix(voucherType)}/${fy.label}/`;
 
-  const last = await ReceiptPayment.findOne(
+  return nextSlashSequence(
+    ReceiptPayment,
+    "voucherNo",
     { companyId, financialYearId, voucherType },
-    { voucherNo: 1 },
-    { sort: { createdAt: -1 } }
+    prefix
   );
-
-  if (!last) return `${prefix}-0001`;
-
-  const lastNo = getDocumentSequence(last.voucherNo);
-  return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
 };
 
-/** Expense: EXP-2026-2027-0001 */
+/** Expense: PKS/EXP/2026-27/0001 */
 export const getNextExpenseNo = async (companyId, financialYearId) => {
-  const fy = await FinancialYear.findById(financialYearId);
+  const [fy, companyCode] = await Promise.all([
+    FinancialYear.findById(financialYearId),
+    getCompanyCode(companyId),
+  ]);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const prefix = `EXP-${getFYDocumentCode(fy.label)}`;
-  const last = await Expense.findOne(
+  const prefix = `${companyCode}/EXP/${fy.label}/`;
+
+  return nextSlashSequence(
+    Expense,
+    "expenseNo",
     { companyId, financialYearId },
-    { expenseNo: 1 },
-    { sort: { createdAt: -1 } }
+    prefix
   );
-
-  if (!last) return `${prefix}-0001`;
-
-  const lastNo = getDocumentSequence(last.expenseNo);
-  return `${prefix}-${String(lastNo + 1).padStart(4, "0")}`;
 };
 
 /** Journal: JE-2026-2027-0001 */

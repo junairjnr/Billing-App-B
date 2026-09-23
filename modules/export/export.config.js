@@ -16,6 +16,14 @@ const fmtDate = (d) => {
   return date.toISOString().slice(0, 10);
 };
 
+/** Outstanding on an invoice — derived, since stored balanceAmount is 0 on
+ *  invoices created before payment tracking existed. */
+const invoiceBalance = (r) => {
+  const effectiveTotal = Number(r.grandTotal || 0) - Number(r.returnedAmount || 0);
+  const balance = effectiveTotal - Number(r.paidAmount || 0);
+  return Math.max(0, Number(balance.toFixed(2)));
+};
+
 export const EXPORT_REPORTS = {
   customers: {
     label: "Customers & Vendors",
@@ -78,9 +86,10 @@ export const EXPORT_REPORTS = {
       { key: "priceLevel", header: "Price Level", default: true, get: (r) => r.priceLevelSnapshot?.name || "" },
       { key: "salesType", header: "Type", default: true, get: (r) => r.salesType || "" },
       { key: "saleMode", header: "Sale Mode", default: true, get: (r) => r.saleMode || "cash" },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "grandTotal", header: "Total", default: true, get: (r) => r.grandTotal ?? 0 },
       { key: "received", header: "Received", default: true, get: (r) => r.paidAmount ?? 0 },
-      { key: "balanceAmount", header: "Balance", default: true, get: (r) => r.balanceAmount ?? 0 },
+      { key: "balanceAmount", header: "Balance", default: true, get: (r) => invoiceBalance(r) },
       { key: "paymentStatus", header: "Payment", default: true, get: (r) => r.paymentStatus || "" },
       { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
     ],
@@ -95,7 +104,7 @@ export const EXPORT_REPORTS = {
       { key: "purchaseDate", header: "Date", default: true, get: (r) => fmtDate(r.purchaseDate) },
       { key: "vendor", header: "Vendor", default: true, get: (r) => r.vendorSnapshot?.name || r.vendorId?.name || "" },
       { key: "grandTotal", header: "Total", default: true, get: (r) => r.grandTotal ?? 0 },
-      { key: "balanceAmount", header: "Balance", default: false, get: (r) => r.balanceAmount ?? 0 },
+      { key: "balanceAmount", header: "Balance", default: false, get: (r) => invoiceBalance(r) },
       { key: "paymentStatus", header: "Payment", default: false, get: (r) => r.paymentStatus || "" },
       { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
     ],
@@ -120,6 +129,7 @@ export const EXPORT_REPORTS = {
         get: (r) => r.customerSnapshot?.name || r.customerId?.name || "",
       },
       { key: "salesType", header: "Type", default: true, get: (r) => r.salesType || "" },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "amount", header: "Amount", default: true, get: (r) => r.grandTotal ?? 0 },
       { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
     ],
@@ -271,6 +281,7 @@ export const EXPORT_REPORTS = {
       { key: "salesType", header: "Type", default: true, get: (r) => r.salesType || "" },
       { key: "customer", header: "Customer", default: true, get: (r) => r.customerSnapshot?.name || "" },
       { key: "priceLevel", header: "Price Level", default: true, get: (r) => r.priceLevelSnapshot?.name || "" },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "tax", header: "Tax", default: true, get: (r) => r.totalTax ?? 0 },
       { key: "totalTax", header: "Tax", default: false, get: (r) => r.totalTax ?? 0 },
@@ -309,6 +320,7 @@ export const EXPORT_REPORTS = {
       { key: "returnMode", header: "Return Mode", default: true, get: (r) => r.returnMode || "" },
       { key: "customer", header: "Customer", default: true, get: (r) => r.customerSnapshot?.name || "" },
       { key: "priceLevel", header: "Price Level", default: true, get: (r) => r.priceLevelSnapshot?.name || "" },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.totalCGST ?? 0 },
@@ -471,6 +483,12 @@ export const EXPORT_REPORTS = {
       { key: "customer", header: "Customer", default: true, get: (r) => r.customer || "" },
       { key: "itemName", header: "Item", default: true, get: (r) => r.itemName || "" },
       { key: "hsn", header: "HSN", default: true, get: (r) => r.hsn || "" },
+      {
+        key: "discount",
+        header: "Disc %",
+        default: true,
+        get: (r) => (Number(r.discount) > 0 ? `${r.discount}%` : ""),
+      },
       { key: "qty", header: "Qty", default: true, get: (r) => r.qty ?? 0 },
       { key: "rate", header: "Rate", default: true, get: (r) => r.rate ?? 0 },
       { key: "taxableValue", header: "Taxable Value", default: true, get: (r) => r.taxableValue ?? 0 },

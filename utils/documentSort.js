@@ -2,6 +2,8 @@
 export const transactionListSort = { createdAt: -1 };
 
 /** Reports / exports — newest document date first, then creation time. */
+export const salesInvoiceReportSort = { invoiceDate: -1, createdAt: -1 };
+export const salesReturnReportSort = { returnDate: -1, createdAt: -1 };
 export const purchaseInvoiceReportSort = { purchaseDate: -1, createdAt: -1 };
 export const purchaseReturnReportSort = { returnDate: -1, createdAt: -1 };
 

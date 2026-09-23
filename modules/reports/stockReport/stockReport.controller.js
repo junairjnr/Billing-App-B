@@ -6,6 +6,7 @@ import "../../masters/item/item.model.js";
 import "../../masters/itemCategory/itemCategory.model.js";
 import "../../masters/uom/uom.model.js";
 import "../../warehouse/warehouse.model.js";
+import { reportSearchMatcher } from "../reportSearch.js";
 
 const parseIncludeZero = (value) => value === true || value === "true";
 const DEFAULT_GST_PERCENT = 18;
@@ -16,10 +17,12 @@ export const stockReport = asyncHandler(async (req, res) => {
     categoryId,
     itemId,
     includeZero = "false",
+    search,
     page = 1,
     limit = 20,
   } = req.query;
   const showZeroStock = parseIncludeZero(includeZero);
+  const matchesSearch = reportSearchMatcher(search);
 
   const filter = {
     companyId: req.companyId,
@@ -76,6 +79,8 @@ export const stockReport = asyncHandler(async (req, res) => {
     })
     .populate("warehouseId", "name code")
     .lean();
+
+  data = data.filter((row) => matchesSearch(row.itemId?.name, row.itemId?.code));
 
   data = data.map((row) => {
     const rate = Number(row.itemId?.price) || Number(row.avgCost) || 0;

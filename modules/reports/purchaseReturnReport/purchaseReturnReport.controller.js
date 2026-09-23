@@ -2,6 +2,8 @@ import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
 import { purchaseReturnReportSort } from "../../../utils/documentSort.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 import {
   getPurchaseReturnTaxTotals,
   withPurchaseReturnTaxTotals,
@@ -15,6 +17,7 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
     warehouseId,
     returnMode,
     status,
+    search,
     page = 1,
     limit = 50,
   } = req.query;
@@ -40,6 +43,16 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
   if (warehouseId) filter.warehouseId = warehouseId;
   if (returnMode) filter.returnMode = returnMode;
   if (status) filter.status = status;
+
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [
+      { returnNo: pattern },
+      { originalInvoiceNo: pattern },
+      { "vendorSnapshot.name": pattern },
+    ];
+  }
 
   const skip = (Number(page) - 1) * Number(limit);
 

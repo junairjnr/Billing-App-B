@@ -5,6 +5,10 @@ import {
   getSalesInvoiceTaxTotals,
   withSalesInvoiceTaxTotals,
 } from "./salesReport.tax.js";
+import { salesInvoiceReportSort } from "../../../utils/documentSort.js";
+import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 export const salesReport = asyncHandler(async (req, res) => {
   const {
@@ -15,6 +19,7 @@ export const salesReport = asyncHandler(async (req, res) => {
     warehouseId,
     priceLevelId,
     status,
+    search,
     page = 1,
     limit = 50,
   } = req.query;
@@ -42,6 +47,12 @@ export const salesReport = asyncHandler(async (req, res) => {
   if (priceLevelId) filter.priceLevelId = priceLevelId;
   if (status) filter.status = status;
 
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [{ invoiceNo: pattern }, { "customerSnapshot.name": pattern }];
+  }
+
   const skip = (Number(page) - 1) * Number(limit);
 
   const [rawData, total] = await Promise.all([
@@ -50,16 +61,19 @@ export const salesReport = asyncHandler(async (req, res) => {
       .populate("warehouseId", "name code")
       .populate("priceLevelId", "name taxPercent")
       .select(
-        "invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status"
+        "invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot items cashDiscountAmt netAmount totalSGST totalCGST totalTax grandTotal status createdAt"
       )
-      .sort({ invoiceDate: -1 })
+      .sort(salesInvoiceReportSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),
     SalesInvoice.countDocuments(filter),
   ]);
 
-  const data = rawData.map(withSalesInvoiceTaxTotals);
+  const data = rawData.map((row) => ({
+    ...withSalesInvoiceTaxTotals(row),
+    discountAmount: getDocumentDiscountAmount(row),
+  }));
 
   const allData = await SalesInvoice.find(filter)
     .select("items netAmount totalSGST totalCGST totalTax grandTotal salesType")

@@ -6,6 +6,7 @@ import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.j
 import Customer from "../masters/customer/customer.model.js";
 import BankAccount from "../masters/bank/bank.model.js";
 import { persistUnlinkedManualReturnsForVendor } from "../purchase/purchaseReturn/purchaseReturnCredits.js";
+import { persistUnlinkedManualReturnsForCustomer } from "../sales/salesReturn/salesReturnCredits.js";
 import ApiError from "../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
 import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
@@ -147,6 +148,8 @@ export const getOutstandingInvoices = async ({
 
   if (invoiceType === "purchase") {
     await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyOid);
+  } else {
+    await persistUnlinkedManualReturnsForCustomer(companyId, financialYearId, partyOid);
   }
 
   const invoices = await Model.find({
@@ -276,6 +279,8 @@ export const createVoucher = async ({
   const invoiceType = voucherType === "receipt" ? "sales" : "purchase";
   if (invoiceType === "purchase") {
     await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyId);
+  } else {
+    await persistUnlinkedManualReturnsForCustomer(companyId, financialYearId, partyId);
   }
 
   return withTransaction(async (session) => {

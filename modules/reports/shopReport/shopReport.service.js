@@ -3,6 +3,7 @@ import SalesReturn from "../../sales/salesReturn/salesReturn.model.js";
 import PurchaseInvoice from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
 import ReceiptPayment from "../../receipt-payment/receiptPayment.model.js";
+import { reportSearchMatcher } from "../reportSearch.js";
 
 const buildDateFilter = (dateFrom, dateTo) => {
   if (!dateFrom && !dateTo) return null;
@@ -199,10 +200,12 @@ export const getShopReport = async ({
   salesType,
   dateFrom,
   dateTo,
+  search,
   page = 1,
   limit = 20,
 }) => {
   const dateFilter = buildDateFilter(dateFrom, dateTo);
+  const matchesSearch = reportSearchMatcher(search);
   const normalizedPartyType =
     partyType === "customer" || partyType === "vendor" ? partyType : undefined;
 
@@ -224,9 +227,9 @@ export const getShopReport = async ({
     }),
   ]);
 
-  const allEntries = [...customerEntries, ...vendorEntries].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  const allEntries = [...customerEntries, ...vendorEntries]
+    .filter((entry) => matchesSearch(entry.partyName, entry.refNo))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const totalDebit = Number(
     allEntries.reduce((sum, entry) => sum + entry.debit, 0).toFixed(2)

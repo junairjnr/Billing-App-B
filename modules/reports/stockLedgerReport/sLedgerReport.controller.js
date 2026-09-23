@@ -4,6 +4,8 @@ import StockLedger   from "../../stock/stockLedger.model.js";
 import "../../masters/item/item.model.js";
 import "../../masters/uom/uom.model.js";
 import "../../warehouse/warehouse.model.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 
 // ── 4. LEDGER REPORT ──────────────────────────────────────────
@@ -15,6 +17,7 @@ export const ledgerReport = asyncHandler(async (req, res) => {
     movementType,
     dateFrom,
     dateTo,
+    search,
     page  = 1,
     limit = 50,
   } = req.query;
@@ -43,6 +46,12 @@ export const ledgerReport = asyncHandler(async (req, res) => {
       end.setHours(23, 59, 59, 999);
       filter.createdAt.$lte = end;
     }
+  }
+
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [{ referenceNo: pattern }, { notes: pattern }];
   }
 
   const skip = (Number(page) - 1) * Number(limit);

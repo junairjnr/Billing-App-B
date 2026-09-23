@@ -211,14 +211,21 @@ export const getAllPurchaseInvoices = async ({
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
-  if (safeSearch) filter.invoiceNo = regexContains(safeSearch);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [
+      { invoiceNo: pattern },
+      { vendorInvoiceNo: pattern },
+      { "vendorSnapshot.name": pattern },
+    ];
+  }
 
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
     PurchaseInvoice.find(filter)
       .populate("vendorId",    "name phone")
       .populate("warehouseId", "name code")
-      .select("invoiceNo vendorInvoiceNo purchaseDate vendorId vendorSnapshot warehouseId grandTotal status createdAt")
+      .select("invoiceNo vendorInvoiceNo purchaseDate vendorId vendorSnapshot warehouseId grandTotal returnedAmount paidAmount balanceAmount paymentStatus status createdAt")
       .sort(transactionListSort)
       .skip(skip).limit(limit).lean(),
     PurchaseInvoice.countDocuments(filter),

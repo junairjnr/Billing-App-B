@@ -15,6 +15,7 @@ const selectFields =
 const ctrl = crudFactory(customerModel, {
   selectFields,
   hasTextIndex: true,
+  filterFields: ["type", "customerType"],
 });
 
 const create = asyncHandler(async (req, res) => {

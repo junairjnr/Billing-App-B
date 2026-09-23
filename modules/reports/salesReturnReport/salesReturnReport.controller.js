@@ -5,6 +5,10 @@ import {
   getSalesReturnTaxTotals,
   withSalesReturnTaxTotals,
 } from "./salesReturnReport.tax.js";
+import { salesReturnReportSort } from "../../../utils/documentSort.js";
+import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
 export const salesReturnReport = asyncHandler(async (req, res) => {
   const {
@@ -15,6 +19,7 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
     warehouseId,
     returnMode,
     status,
+    search,
     page = 1,
     limit = 50,
   } = req.query;
@@ -42,6 +47,16 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
   if (returnMode) filter.returnMode = returnMode;
   if (status) filter.status = status;
 
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = [
+      { returnNo: pattern },
+      { originalInvoiceNo: pattern },
+      { "customerSnapshot.name": pattern },
+    ];
+  }
+
   const skip = (Number(page) - 1) * Number(limit);
 
   const [rawData, total] = await Promise.all([
@@ -50,16 +65,19 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
       .populate("warehouseId", "name code")
       .populate("salesInvoiceId", "invoiceNo")
       .select(
-        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status"
+        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status createdAt"
       )
-      .sort({ returnDate: -1 })
+      .sort(salesReturnReportSort)
       .skip(skip)
       .limit(Number(limit))
       .lean(),
     SalesReturn.countDocuments(filter),
   ]);
 
-  const data = rawData.map(withSalesReturnTaxTotals);
+  const data = rawData.map((row) => ({
+    ...withSalesReturnTaxTotals(row),
+    discountAmount: getDocumentDiscountAmount(row),
+  }));
 
   const allData = await SalesReturn.find(filter)
     .select("items netAmount totalSGST totalCGST totalTax grandTotal salesType returnMode")

@@ -25,6 +25,12 @@ const lineTaxAmounts = (item) => {
   return { sgst, cgst };
 };
 
+/** Taxable value + SGST/CGST of one invoice line, with the 9%+9% fallback. */
+export const getSalesLineTaxAmounts = (item) => ({
+  taxableValue: lineTaxableValue(item),
+  ...lineTaxAmounts(item),
+});
+
 export const getSalesInvoiceTaxTotals = (invoice) => {
   const items = invoice.items ?? [];
   let totalSGST = 0;

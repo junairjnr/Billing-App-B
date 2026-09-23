@@ -13,11 +13,14 @@ import * as coaService from "../accounting/chartOfAccount/chartOfAccount.service
 import { getReportConfig } from "./export.config.js";
 import { fetchOperationalReportRows } from "./exportReportData.js";
 import { resolveSelectedColumns } from "./exportColumnResolver.js";
+import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { regexContains } from "../../utils/escapeRegex.js";
 
 const EXPORT_ROW_LIMIT = 10000;
 const EXPORT_FILTER_KEYS = [
   "search",
   "type",
+  "customerType",
   "salesType",
   "salesInvoiceId",
   "purchaseInvoiceId",
@@ -78,8 +81,17 @@ const fetchRows = async (reportType, ctx) => {
   switch (reportType) {
     case "customers": {
       const filter = { companyId };
-      const type = exportQuery(ctx).type;
+      const { type, customerType, search } = exportQuery(ctx);
       if (typeof type === "string" && type) filter.type = type;
+      if (customerType === "retail" || customerType === "wholesale") {
+        filter.customerType = customerType;
+      }
+      const safeSearch = optionalSearchString(search);
+      if (safeSearch) {
+        filter.$or = ["name", "phone", "email"].map((field) => ({
+          [field]: regexContains(safeSearch),
+        }));
+      }
       return customerModel
         .find(filter)
         .select("name email phone gstin customerType address type")

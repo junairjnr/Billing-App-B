@@ -83,12 +83,38 @@ import { optionalSearchString } from "./sanitizeInput.js";
 
 const ALLOWED_SORT_FIELDS = new Set(["createdAt", "updatedAt", "name", "code"]);
 
+/** String fields of the model's text index — used for substring search. */
+const searchableStringFields = (Model) => {
+  const fields = [];
+
+  for (const [spec] of Model.schema.indexes()) {
+    for (const [path, type] of Object.entries(spec)) {
+      if (type !== "text") continue;
+      if (Model.schema.path(path)?.instance === "String") fields.push(path);
+    }
+  }
+
+  if (!fields.length && Model.schema.path("name")?.instance === "String") {
+    fields.push("name");
+  }
+  return fields;
+};
+
 const crudFactory = (Model, options = {}) => {
   const {
     selectFields = "-__v",
     hasTextIndex = false,
     populateOpts = null,
+    filterFields = [],
   } = options;
+
+  // Text indexes are whole-word only, so search runs as a regex over the same
+  // fields — "raj" then still finds "Rajesh".
+  const searchFields = hasTextIndex
+    ? searchableStringFields(Model)
+    : Model.schema.path("name")
+      ? ["name"]
+      : [];
 
   // ── Helper: apply populate (single or array) ────────────────
   const applyPopulate = (query) => {
@@ -119,14 +145,19 @@ const crudFactory = (Model, options = {}) => {
 
       if (isActive !== undefined) filter.isActive = isActive === "true";
 
-      if (search) {
+      for (const field of filterFields) {
+        const value = req.query[field];
+        if (typeof value !== "string" || !value.trim()) continue;
+        const allowed = Model.schema.path(field)?.enumValues;
+        if (allowed?.length && !allowed.includes(value.trim())) continue;
+        filter[field] = value.trim();
+      }
+
+      if (search && searchFields.length) {
         const safeSearch = optionalSearchString(search);
         if (safeSearch) {
-          if (hasTextIndex) {
-            filter.$text = { $search: safeSearch };
-          } else {
-            filter.name = regexContains(safeSearch);
-          }
+          const pattern = regexContains(safeSearch);
+          filter.$or = searchFields.map((field) => ({ [field]: pattern }));
         }
       }
 

@@ -10,6 +10,8 @@ import SalesReturn from "../sales/salesReturn/salesReturn.model.js";
 import PurchaseReturn from "../purchase/purchaseReturn/purchaseReturn.model.js";
 import Expense from "../expense/expense.model.js";
 import { withSalesReturnTaxTotals } from "../reports/salesReturnReport/salesReturnReport.tax.js";
+import { getSalesLineTaxAmounts } from "../reports/salesReport/salesReport.tax.js";
+import { getDocumentDiscountAmount } from "../../utils/discountTotals.js";
 import {
   getPurchaseItemTaxAmounts,
   withPurchaseInvoiceTaxTotals,
@@ -22,7 +24,12 @@ import {
   compareByDateThenCreated,
   purchaseInvoiceReportSort,
   purchaseReturnReportSort,
+  salesInvoiceReportSort,
+  salesReturnReportSort,
 } from "../../utils/documentSort.js";
+import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { regexContains } from "../../utils/escapeRegex.js";
+import { reportSearchMatcher } from "../reports/reportSearch.js";
 
 const DEFAULT_GST_PERCENT = 18;
 const EXPORT_LIMIT = 10000;
@@ -65,6 +72,15 @@ const resolveVendorName = (doc) =>
   (typeof doc?.vendorId === "object" ? doc.vendorId?.name : "") ||
   "";
 
+const applyDocSearch = (filter, search, orFields) => {
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    const pattern = regexContains(safeSearch);
+    filter.$or = orFields.map((field) => ({ [field]: pattern }));
+  }
+  return filter;
+};
+
 export const fetchOperationalReportRows = async (reportType, ctx) => {
   const { companyId, branchId, financialYearId, query = {} } = ctx;
 
@@ -75,19 +91,29 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.salesType) filter.salesType = query.salesType;
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.status) filter.status = query.status;
-      return SalesInvoice.find(filter)
+      applyDocSearch(filter, query.search, ["invoiceNo", "customerSnapshot.name"]);
+      const rows = await SalesInvoice.find(filter)
         .populate("customerId", "name phone")
         .populate("priceLevelId", "name")
-        .select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot netAmount totalTax grandTotal status")
-        .sort({ invoiceDate: -1 })
+        .select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items.discountAmt cashDiscountAmt netAmount totalTax grandTotal status createdAt")
+        .sort(salesInvoiceReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
+      return rows.map(({ items, ...row }) => ({
+        ...row,
+        discountAmount: getDocumentDiscountAmount({ items, ...row }),
+      }));
     }
     case "purchase-report": {
       const filter = { ...baseScope(ctx), ...buildDateFilter(query, "purchaseDate") };
       if (query.vendorId) filter.vendorId = query.vendorId;
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.status) filter.status = query.status;
+      applyDocSearch(filter, query.search, [
+        "invoiceNo",
+        "vendorInvoiceNo",
+        "vendorSnapshot.name",
+      ]);
       const rows = await PurchaseInvoice.find(filter)
         .populate("vendorId", "name phone")
         .populate("warehouseId", "name code")
@@ -106,15 +132,23 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.returnMode) filter.returnMode = query.returnMode;
       if (query.status) filter.status = query.status;
+      applyDocSearch(filter, query.search, [
+        "returnNo",
+        "originalInvoiceNo",
+        "customerSnapshot.name",
+      ]);
       const rows = await SalesReturn.find(filter)
         .populate("customerId", "name phone")
         .select(
-          "returnNo returnDate returnMode originalInvoiceNo salesType customerSnapshot priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status"
+          "returnNo returnDate returnMode originalInvoiceNo salesType customerSnapshot priceLevelSnapshot items netAmount totalSGST totalCGST totalTax grandTotal status createdAt"
         )
-        .sort({ returnDate: -1 })
+        .sort(salesReturnReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
-      return rows.map(withSalesReturnTaxTotals);
+      return rows.map((row) => ({
+        ...withSalesReturnTaxTotals(row),
+        discountAmount: getDocumentDiscountAmount(row),
+      }));
     }
     case "purchase-return-report": {
       const filter = { ...baseScope(ctx), ...buildDateFilter(query, "returnDate") };
@@ -122,6 +156,11 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.returnMode) filter.returnMode = query.returnMode;
       if (query.status) filter.status = query.status;
+      applyDocSearch(filter, query.search, [
+        "returnNo",
+        "originalInvoiceNo",
+        "vendorSnapshot.name",
+      ]);
       const rows = await PurchaseReturn.find(filter)
         .populate("vendorId", "name phone")
         .populate("warehouseId", "name")
@@ -144,11 +183,14 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
           ? { $in: items.map((i) => i._id).filter((id) => id.toString() === query.itemId) }
           : { $in: items.map((i) => i._id) };
       }
+      const matchesSearch = reportSearchMatcher(query.search);
       const rows = await Stock.find(filter)
         .populate({ path: "itemId", select: "name code hsnCode categoryId uomId taxPercent price", populate: [{ path: "categoryId", select: "name" }, { path: "uomId", select: "name" }] })
         .populate("warehouseId", "name code")
         .lean();
-      return rows.map((row) => {
+      return rows
+        .filter((row) => matchesSearch(row.itemId?.name, row.itemId?.code))
+        .map((row) => {
         const rate = Number(row.itemId?.price) || Number(row.avgCost) || 0;
         const stockValue = Number((row.qty * rate).toFixed(2));
         const taxPercent = Number(row.itemId?.taxPercent) || DEFAULT_GST_PERCENT;
@@ -164,6 +206,7 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.warehouseId) filter.warehouseId = query.warehouseId;
       if (query.movementType) filter.movementType = query.movementType;
       Object.assign(filter, buildDateFilter(query, "createdAt"));
+      applyDocSearch(filter, query.search, ["referenceNo", "notes"]);
       return StockLedger.find(filter)
         .populate({ path: "itemId", select: "name code uomId", populate: { path: "uomId", select: "name" } })
         .populate("warehouseId", "name code")
@@ -177,8 +220,10 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         financialYearId,
         partyType: query.partyType,
         partyId: query.partyId || query.customerId || query.vendorId,
+        salesType: query.salesType,
         dateFrom: query.dateFrom,
         dateTo: query.dateTo,
+        search: query.search,
         page: 1,
         limit: EXPORT_LIMIT,
       });
@@ -189,16 +234,20 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
       if (query.salesType) filter.salesType = query.salesType;
-      const invoices = await salesInvoiceModel.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items grandTotal status").sort({ invoiceDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const invoices = await salesInvoiceModel.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items grandTotal status createdAt").sort(salesInvoiceReportSort).limit(EXPORT_LIMIT).lean();
       const rows = [];
       for (const inv of invoices) {
         for (const item of inv.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ invoiceNo: inv.invoiceNo, date: inv.invoiceDate, salesType: inv.salesType, customer: inv.customerSnapshot?.name || "", priceLevel: inv.priceLevelSnapshot?.name || "", itemName: item.name || item.itemSnapshot?.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", discount: Number(item.discount) || 0, qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: inv.status });
+          const { taxableValue, sgst, cgst } = getSalesLineTaxAmounts(item);
+          rows.push({ invoiceNo: inv.invoiceNo, date: inv.invoiceDate, createdAt: inv.createdAt, salesType: inv.salesType, customer: inv.customerSnapshot?.name || "", priceLevel: inv.priceLevelSnapshot?.name || "", itemName: item.name || item.itemSnapshot?.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", discount: Number(item.discount) || 0, qty: item.qty, rate: item.rate, taxableValue, sgst, cgst, total: item.total ?? Number((taxableValue + sgst + cgst).toFixed(2)), status: inv.status });
         }
       }
-      rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      return rows;
+      const matchesSearch = reportSearchMatcher(query.search);
+      rows.sort(compareByDateThenCreated("date"));
+      return rows.filter((row) =>
+        matchesSearch(row.invoiceNo, row.customer, row.itemName)
+      );
     }
     case "purchase-history": {
       const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "purchaseDate") };
@@ -231,23 +280,30 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
           });
         }
       }
+      const matchesSearch = reportSearchMatcher(query.search);
       rows.sort(compareByDateThenCreated("date"));
-      return rows;
+      return rows.filter((row) =>
+        matchesSearch(row.invoiceNo, row.vendor, row.itemName)
+      );
     }
     case "sales-return-history": {
       const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "returnDate") };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
-      const returns = await SalesReturn.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate originalInvoiceNo salesType customerSnapshot items grandTotal status").sort({ returnDate: -1 }).limit(EXPORT_LIMIT).lean();
+      const returns = await SalesReturn.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate originalInvoiceNo salesType customerSnapshot items grandTotal status createdAt").sort(salesReturnReportSort).limit(EXPORT_LIMIT).lean();
       const rows = [];
       for (const ret of returns) {
         for (const item of ret.items || []) {
           if (query.itemId && item.itemId?.toString() !== query.itemId && item.itemId?._id?.toString() !== query.itemId) continue;
-          rows.push({ returnNo: ret.returnNo, date: ret.returnDate, originalInvoice: ret.originalInvoiceNo || "", salesType: ret.salesType || "", customer: ret.customerSnapshot?.name || "", itemName: item.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", qty: item.qty, rate: item.rate, taxableValue: item.taxableValue, sgst: item.sgst, cgst: item.cgst, total: item.total ?? item.qty * item.rate, status: ret.status });
+          const { taxableValue, sgst, cgst } = getSalesLineTaxAmounts(item);
+          rows.push({ returnNo: ret.returnNo, date: ret.returnDate, createdAt: ret.createdAt, originalInvoice: ret.originalInvoiceNo || "", salesType: ret.salesType || "", customer: ret.customerSnapshot?.name || "", itemName: item.name || (typeof item.itemId === "object" ? item.itemId?.name : "") || "", hsn: item.hsn || (typeof item.itemId === "object" ? item.itemId?.hsnCode : "") || "", discount: Number(item.discount) || 0, qty: item.qty, rate: item.rate, taxableValue, sgst, cgst, total: item.total ?? Number((taxableValue + sgst + cgst).toFixed(2)), status: ret.status });
         }
       }
-      rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      return rows;
+      const matchesSearch = reportSearchMatcher(query.search);
+      rows.sort(compareByDateThenCreated("date"));
+      return rows.filter((row) =>
+        matchesSearch(row.returnNo, row.originalInvoice, row.customer, row.itemName)
+      );
     }
     case "purchase-return-history": {
       const filter = {
@@ -295,13 +351,17 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
           });
         }
       }
+      const matchesSearch = reportSearchMatcher(query.search);
       rows.sort(compareByDateThenCreated("date"));
-      return rows;
+      return rows.filter((row) =>
+        matchesSearch(row.returnNo, row.originalInvoice, row.vendor, row.itemName)
+      );
     }
     case "expense-report": {
       const filter = { companyId, branchId, financialYearId, isActive: { $ne: false } };
       if (query.category) filter.category = query.category;
       Object.assign(filter, buildDateFilter(query, "date"));
+      applyDocSearch(filter, query.search, ["expenseNo", "title"]);
       return Expense.find(filter).select("expenseNo date category title amount paymentMode referenceNo notes").sort({ date: -1 }).limit(EXPORT_LIMIT).lean();
     }
     default:

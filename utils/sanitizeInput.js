@@ -15,6 +15,15 @@ export const requireString = (value, fieldName, { maxLength = 500 } = {}) => {
   return trimmed;
 };
 
+/** Optional id filter — undefined when blank, rejected when not a valid ObjectId. */
+export const optionalObjectId = (value, fieldName = "Id") => {
+  if (value == null || value === "") return undefined;
+  if (typeof value !== "string" || !/^[a-f\d]{24}$/i.test(value.trim())) {
+    throw new ApiError(400, `Invalid ${fieldName}`);
+  }
+  return value.trim();
+};
+
 export const optionalSearchString = (value, maxLength = 100) => {
   if (value == null || value === "") return undefined;
   if (typeof value !== "string") {
