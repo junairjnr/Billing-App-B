@@ -33,3 +33,9 @@ export const salesCustomerTypeFilter = (salesType) => {
     ],
   };
 };
+
+/** Master list / export: retail & wholesale apply to sales customers only (not vendors). */
+export const salesPartyListCustomerTypeFilter = (salesType) => ({
+  type: "sales",
+  ...salesCustomerTypeFilter(salesType),
+});

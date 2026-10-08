@@ -1,6 +1,9 @@
 import PurchaseInvoice from "../purchaseInvoice/purchaseInvoice.model.js";
 import PurchaseReturn from "./purchaseReturn.model.js";
 import { sessionOpts } from "../../../utils/withTransaction.js";
+import { escapeRegex } from "../../../utils/escapeRegex.js";
+import { optionalObjectId } from "../../../utils/sanitizeInput.js";
+import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
 
 const UNLINKED_RETURN_FILTER = {
   returnMode: "manual",
@@ -17,15 +20,13 @@ const recalcPurchaseInvoicePaymentStatus = (invoice) => {
   const paid = Number(invoice.paidAmount || 0);
   invoice.balanceAmount = Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
 
-  if (paid <= 0) invoice.paymentStatus = "pending";
-  else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
-  else invoice.paymentStatus = "partial";
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const normalizeRef = (value) => {
   const trimmed = String(value ?? "").trim();
   if (!trimmed || trimmed.toUpperCase() === "MANUAL") return "";
-  return trimmed;
+  return trimmed.toLowerCase();
 };
 
 const uniqueRefs = (values) => [...new Set(values.map(normalizeRef).filter(Boolean))];
@@ -80,7 +81,10 @@ export const findPurchaseInvoiceForManualReturn = async ({
     vendorId,
     isActive: true,
     status: "confirmed",
-    $or: tokens.flatMap((token) => [{ invoiceNo: token }, { vendorInvoiceNo: token }]),
+    $or: tokens.flatMap((token) => [
+      { invoiceNo: { $regex: new RegExp(`^${escapeRegex(token)}$`, "i") } },
+      { vendorInvoiceNo: { $regex: new RegExp(`^${escapeRegex(token)}$`, "i") } },
+    ]),
   });
 };
 
@@ -105,6 +109,43 @@ export async function applyManualReturnToInvoice(invoice, purchaseReturn, sessio
   }
 }
 
+const MANUAL_RETURN_SELECT =
+  "grandTotal referenceInvoiceNo vendorInvoiceNo originalInvoiceNo vendorId";
+
+export async function persistUnlinkedManualReturnsForInvoice(
+  companyId,
+  financialYearId,
+  invoiceId
+) {
+  const safeInvoiceId = optionalObjectId(invoiceId, "invoice id");
+  if (!companyId || !financialYearId || !safeInvoiceId) return;
+
+  let invoice = await PurchaseInvoice.findOne({
+    _id: safeInvoiceId,
+    companyId,
+    financialYearId,
+    isActive: true,
+    status: "confirmed",
+  });
+  if (!invoice) return;
+
+  const manualReturns = await PurchaseReturn.find({
+    ...UNLINKED_RETURN_FILTER,
+    companyId,
+    financialYearId,
+    vendorId: invoice.vendorId,
+  }).select(MANUAL_RETURN_SELECT);
+
+  for (const manualReturn of manualReturns) {
+    if (!manualReturnMatchesInvoice(manualReturn, invoice)) continue;
+    const applied = await applyManualReturnToInvoice(invoice, manualReturn);
+    if (applied) {
+      invoice = await PurchaseInvoice.findById(invoice._id);
+      if (!invoice) break;
+    }
+  }
+}
+
 export async function persistUnlinkedManualReturnsForVendor(
   companyId,
   financialYearId,
@@ -118,7 +159,7 @@ export async function persistUnlinkedManualReturnsForVendor(
     financialYearId,
     vendorId,
   })
-    .select("grandTotal referenceInvoiceNo vendorInvoiceNo originalInvoiceNo vendorId")
+    .select(MANUAL_RETURN_SELECT)
     .lean();
 
   if (!manualReturns.length) return;

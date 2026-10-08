@@ -5,12 +5,23 @@ import { moveStock }   from "../../stock/stock.services.js";
 import ApiError        from "../../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../../utils/withTransaction.js";
 import { postPurchaseInvoice } from "../../accounting/journal/posting.service.js";
-import { persistUnlinkedManualReturnsForVendor } from "../purchaseReturn/purchaseReturnCredits.js";
+import {
+  persistUnlinkedManualReturnsForVendor,
+  persistUnlinkedManualReturnsForInvoice,
+} from "../purchaseReturn/purchaseReturnCredits.js";
 import { getNextPurchaseInvoiceNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 import { normalizeAttachments } from "../../upload/upload.utils.js";
 import { transactionListSort } from "../../../utils/documentSort.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../../utils/discountTotals.js";
+import {
+  computeInvoiceBalance,
+  computePaymentStatus,
+} from "../../../utils/invoicePaymentStatus.js";
 
 const round2 = (n) => Number(Number(n).toFixed(2));
 
@@ -225,13 +236,34 @@ export const getAllPurchaseInvoices = async ({
     PurchaseInvoice.find(filter)
       .populate("vendorId",    "name phone")
       .populate("warehouseId", "name code")
-      .select("invoiceNo vendorInvoiceNo purchaseDate vendorId vendorSnapshot warehouseId grandTotal returnedAmount paidAmount balanceAmount paymentStatus status createdAt")
+      .select(
+        "invoiceNo vendorInvoiceNo purchaseDate vendorId vendorSnapshot warehouseId netAmount grandTotal returnedAmount paidAmount balanceAmount paymentStatus status createdAt cashDiscountAmt totalSGST totalCGST items.qty items.discountAmt"
+      )
       .sort(transactionListSort)
       .skip(skip).limit(limit).lean(),
     PurchaseInvoice.countDocuments(filter),
   ]);
 
-  return { data, total, page: Number(page), totalPages: Math.ceil(total / limit), hasNext: page < Math.ceil(total / limit) };
+  const enriched = data.map(({ items, ...row }) => {
+    const base = {
+      ...row,
+      discountAmount: getDocumentDiscountAmount({ items, ...row }),
+      totalQty: sumDocumentItemQty(items),
+    };
+    return {
+      ...base,
+      balanceAmount: computeInvoiceBalance(base),
+      paymentStatus: computePaymentStatus(base),
+    };
+  });
+
+  return {
+    data: enriched,
+    total,
+    page: Number(page),
+    totalPages: Math.ceil(total / limit),
+    hasNext: page < Math.ceil(total / limit),
+  };
 };
 
 export const getOnePurchaseInvoice = async (companyId, invoiceId) => {
@@ -247,6 +279,11 @@ export const getOnePurchaseInvoice = async (companyId, invoiceId) => {
     meta.financialYearId,
     vendorId
   );
+  await persistUnlinkedManualReturnsForInvoice(
+    meta.companyId,
+    meta.financialYearId,
+    invoiceId
+  );
 
   const invoice = await PurchaseInvoice.findOne({ _id: invoiceId, companyId })
     .populate("vendorId",     "name phone gstin address")
@@ -255,5 +292,9 @@ export const getOnePurchaseInvoice = async (companyId, invoiceId) => {
     .populate("items.uomId",  "name shortCode")
     .lean();
   if (!invoice) throw new ApiError(404, "Purchase invoice not found");
-  return invoice;
+  return {
+    ...invoice,
+    balanceAmount: computeInvoiceBalance(invoice),
+    paymentStatus: computePaymentStatus(invoice),
+  };
 };

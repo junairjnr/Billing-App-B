@@ -10,8 +10,14 @@ import SalesReturn from "../sales/salesReturn/salesReturn.model.js";
 import PurchaseReturn from "../purchase/purchaseReturn/purchaseReturn.model.js";
 import Expense from "../expense/expense.model.js";
 import { withSalesReturnTaxTotals } from "../reports/salesReturnReport/salesReturnReport.tax.js";
-import { getSalesLineTaxAmounts } from "../reports/salesReport/salesReport.tax.js";
-import { getDocumentDiscountAmount } from "../../utils/discountTotals.js";
+import {
+  getSalesLineTaxAmounts,
+  withSalesInvoiceTaxTotals,
+} from "../reports/salesReport/salesReport.tax.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../utils/discountTotals.js";
 import {
   getPurchaseItemTaxAmounts,
   withPurchaseInvoiceTaxTotals,
@@ -99,10 +105,14 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         .sort(salesInvoiceReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
-      return rows.map(({ items, ...row }) => ({
-        ...row,
-        discountAmount: getDocumentDiscountAmount({ items, ...row }),
-      }));
+      return rows.map(({ items, ...row }) => {
+        const doc = { items, ...row };
+        return {
+          ...withSalesInvoiceTaxTotals(doc),
+          discountAmount: getDocumentDiscountAmount(doc),
+          totalQty: sumDocumentItemQty(items),
+        };
+      });
     }
     case "purchase-report": {
       const filter = { ...baseScope(ctx), ...buildDateFilter(query, "purchaseDate") };
@@ -123,7 +133,10 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         .sort(purchaseInvoiceReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
-      return rows.map(withPurchaseInvoiceTaxTotals);
+      return rows.map((row) => ({
+        ...withPurchaseInvoiceTaxTotals(row),
+        totalQty: sumDocumentItemQty(row.items),
+      }));
     }
     case "sales-return-report": {
       const filter = { ...baseScope(ctx), ...buildDateFilter(query, "returnDate") };
@@ -148,6 +161,7 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       return rows.map((row) => ({
         ...withSalesReturnTaxTotals(row),
         discountAmount: getDocumentDiscountAmount(row),
+        totalQty: sumDocumentItemQty(row.items),
       }));
     }
     case "purchase-return-report": {
@@ -170,7 +184,10 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
         .sort(purchaseReturnReportSort)
         .limit(EXPORT_LIMIT)
         .lean();
-      return rows.map(withPurchaseReturnTaxTotals);
+      return rows.map((row) => ({
+        ...withPurchaseReturnTaxTotals(row),
+        totalQty: sumDocumentItemQty(row.items),
+      }));
     }
     case "stock-report": {
       const filter = { companyId, financialYearId };

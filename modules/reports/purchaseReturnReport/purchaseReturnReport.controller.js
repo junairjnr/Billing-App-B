@@ -8,6 +8,7 @@ import {
   getPurchaseReturnTaxTotals,
   withPurchaseReturnTaxTotals,
 } from "./purchaseReturnReport.tax.js";
+import { sumDocumentItemQty } from "../../../utils/discountTotals.js";
 
 export const purchaseReturnReport = asyncHandler(async (req, res) => {
   const {
@@ -71,7 +72,10 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
     PurchaseReturn.countDocuments(filter),
   ]);
 
-  const data = rawData.map(withPurchaseReturnTaxTotals);
+  const data = rawData.map((row) => ({
+    ...withPurchaseReturnTaxTotals(row),
+    totalQty: sumDocumentItemQty(row.items),
+  }));
 
   const allData = await PurchaseReturn.find(filter)
     .select("items netAmount totalSGST totalCGST totalTax grandTotal returnMode")
@@ -85,12 +89,14 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
       acc.totalCGST += tax.totalCGST;
       acc.totalTax += tax.totalTax;
       acc.grandTotal += row.grandTotal ?? 0;
+      acc.totalQty += sumDocumentItemQty(row.items);
       if (row.returnMode === "invoice") acc.invoiceModeCount += 1;
       if (row.returnMode === "manual") acc.manualModeCount += 1;
       return acc;
     },
     {
       totalNetAmount: 0,
+      totalQty: 0,
       totalSGST: 0,
       totalCGST: 0,
       totalTax: 0,
@@ -101,6 +107,7 @@ export const purchaseReturnReport = asyncHandler(async (req, res) => {
   );
 
   summary.totalReturns = total;
+  summary.totalQty = Number(summary.totalQty.toFixed(3));
   summary.totalNetAmount = Number(summary.totalNetAmount.toFixed(2));
   summary.totalSGST = Number(summary.totalSGST.toFixed(2));
   summary.totalCGST = Number(summary.totalCGST.toFixed(2));

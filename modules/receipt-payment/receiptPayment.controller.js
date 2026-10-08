@@ -123,6 +123,7 @@ export const customerOutstanding = asyncHandler(async (req, res) => {
     financialYearId: req.fyId,
     partyId: req.params.id,
     invoiceType: "sales",
+    focusInvoiceId: req.query.invoiceId,
   });
   res.json(new ApiResponse(200, data));
 });
@@ -133,6 +134,7 @@ export const vendorOutstanding = asyncHandler(async (req, res) => {
     financialYearId: req.fyId,
     partyId: req.params.id,
     invoiceType: "purchase",
+    focusInvoiceId: req.query.invoiceId,
   });
   res.json(new ApiResponse(200, data));
 });

@@ -5,7 +5,10 @@ import customerModel from "./customer.model.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
-import { assertUniqueCustomerName, salesCustomerTypeFilter } from "./customer.service.js";
+import {
+  assertUniqueCustomerName,
+  salesPartyListCustomerTypeFilter,
+} from "./customer.service.js";
 
 const router = express.Router();
 
@@ -15,7 +18,14 @@ const selectFields =
 const ctrl = crudFactory(customerModel, {
   selectFields,
   hasTextIndex: true,
+  searchFieldNames: ["name", "phone", "email", "gstin"],
   filterFields: ["type", "customerType"],
+  filterFieldBuilders: {
+    customerType: (value) =>
+      value === "retail" || value === "wholesale"
+        ? salesPartyListCustomerTypeFilter(value)
+        : {},
+  },
 });
 
 const create = asyncHandler(async (req, res) => {
@@ -75,7 +85,9 @@ router.get(
 
     const filter = { companyId: req.companyId, isActive: true };
     if (type) filter.type = type;
-    if (customerType) Object.assign(filter, salesCustomerTypeFilter(customerType));
+    if (customerType) {
+      Object.assign(filter, salesPartyListCustomerTypeFilter(customerType));
+    }
 
     const clauses = [];
     if (q) {

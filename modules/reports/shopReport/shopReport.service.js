@@ -3,6 +3,7 @@ import SalesReturn from "../../sales/salesReturn/salesReturn.model.js";
 import PurchaseInvoice from "../../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import PurchaseReturn from "../../purchase/purchaseReturn/purchaseReturn.model.js";
 import ReceiptPayment from "../../receipt-payment/receiptPayment.model.js";
+import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
 import { reportSearchMatcher } from "../reportSearch.js";
 
 const buildDateFilter = (dateFrom, dateTo) => {
@@ -48,7 +49,9 @@ const fetchCustomerEntries = async ({
 
   const [invoices, returns, receipts] = await Promise.all([
     SalesInvoice.find(applyDate({ ...base, status: "confirmed" }, "invoiceDate", dateFilter))
-      .select("invoiceNo invoiceDate grandTotal paymentStatus salesType customerId customerSnapshot")
+      .select(
+        "invoiceNo invoiceDate grandTotal returnedAmount paidAmount balanceAmount paymentStatus salesType customerId customerSnapshot"
+      )
       .lean(),
     SalesReturn.find(applyDate({ ...base, status: "confirmed" }, "returnDate", dateFilter))
       .select("returnNo returnDate grandTotal salesType customerId customerSnapshot")
@@ -82,7 +85,7 @@ const fetchCustomerEntries = async ({
       salesType: inv.salesType,
       debit: Number(inv.grandTotal || 0),
       credit: 0,
-      status: inv.paymentStatus,
+      status: computePaymentStatus(inv),
     })),
     ...returns.map((ret) => ({
       _id: ret._id,
@@ -129,7 +132,9 @@ const fetchVendorEntries = async ({
 
   const [invoices, returns, payments] = await Promise.all([
     PurchaseInvoice.find(applyDate({ ...base, status: "confirmed" }, "purchaseDate", dateFilter))
-      .select("invoiceNo purchaseDate grandTotal paymentStatus vendorId vendorSnapshot")
+      .select(
+        "invoiceNo purchaseDate grandTotal returnedAmount paidAmount balanceAmount paymentStatus vendorId vendorSnapshot"
+      )
       .lean(),
     PurchaseReturn.find(applyDate({ ...base, status: "confirmed" }, "returnDate", dateFilter))
       .select("returnNo returnDate grandTotal vendorId vendorSnapshot")
@@ -162,7 +167,7 @@ const fetchVendorEntries = async ({
       partyType: "vendor",
       debit: 0,
       credit: Number(inv.grandTotal || 0),
-      status: inv.paymentStatus,
+      status: computePaymentStatus(inv),
     })),
     ...returns.map((ret) => ({
       _id: ret._id,

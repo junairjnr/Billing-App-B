@@ -1,6 +1,9 @@
 import SalesInvoice from "../salesInvoice/salesInvoice.model.js";
 import SalesReturn from "./salesReturn.model.js";
 import { sessionOpts } from "../../../utils/withTransaction.js";
+import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
+import { escapeRegex } from "../../../utils/escapeRegex.js";
+import { optionalObjectId } from "../../../utils/sanitizeInput.js";
 
 const UNLINKED_RETURN_FILTER = {
   returnMode: "manual",
@@ -17,15 +20,13 @@ const recalcSalesInvoicePaymentStatus = (invoice) => {
   const paid = Number(invoice.paidAmount || 0);
   invoice.balanceAmount = Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
 
-  if (paid <= 0) invoice.paymentStatus = "pending";
-  else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
-  else invoice.paymentStatus = "partial";
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const normalizeRef = (value) => {
   const trimmed = String(value ?? "").trim();
   if (!trimmed || trimmed.toUpperCase() === "MANUAL") return "";
-  return trimmed;
+  return trimmed.toLowerCase();
 };
 
 const uniqueRefs = (values) => [...new Set(values.map(normalizeRef).filter(Boolean))];
@@ -78,9 +79,48 @@ export const findSalesInvoiceForManualReturn = async ({
     customerId,
     isActive: true,
     status: "confirmed",
-    invoiceNo: { $in: tokens },
+    $or: tokens.map((token) => ({
+      invoiceNo: { $regex: new RegExp(`^${escapeRegex(token)}$`, "i") },
+    })),
   });
 };
+
+const MANUAL_RETURN_SELECT =
+  "grandTotal referenceInvoiceNo originalInvoiceNo customerId";
+
+export async function persistUnlinkedManualReturnsForInvoice(
+  companyId,
+  financialYearId,
+  invoiceId
+) {
+  const safeInvoiceId = optionalObjectId(invoiceId, "invoice id");
+  if (!companyId || !financialYearId || !safeInvoiceId) return;
+
+  let invoice = await SalesInvoice.findOne({
+    _id: safeInvoiceId,
+    companyId,
+    financialYearId,
+    isActive: true,
+    status: "confirmed",
+  });
+  if (!invoice) return;
+
+  const manualReturns = await SalesReturn.find({
+    ...UNLINKED_RETURN_FILTER,
+    companyId,
+    financialYearId,
+    customerId: invoice.customerId,
+  }).select(MANUAL_RETURN_SELECT);
+
+  for (const manualReturn of manualReturns) {
+    if (!manualReturnMatchesInvoice(manualReturn, invoice)) continue;
+    const applied = await applyManualReturnToInvoice(invoice, manualReturn);
+    if (applied) {
+      invoice = await SalesInvoice.findById(invoice._id);
+      if (!invoice) break;
+    }
+  }
+}
 
 export async function applyManualReturnToInvoice(invoice, salesReturn, session) {
   const claimed = await claimManualReturn(salesReturn._id, invoice._id, session);
@@ -116,7 +156,7 @@ export async function persistUnlinkedManualReturnsForCustomer(
     financialYearId,
     customerId,
   })
-    .select("grandTotal referenceInvoiceNo originalInvoiceNo customerId")
+    .select(MANUAL_RETURN_SELECT)
     .lean();
 
   if (!manualReturns.length) return;

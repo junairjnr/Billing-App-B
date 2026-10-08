@@ -26,7 +26,11 @@ import {
   applyManualReturnToInvoice,
   findSalesInvoiceForManualReturn,
 } from "./salesReturnCredits.js";
-import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../../utils/discountTotals.js";
+import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -36,9 +40,7 @@ const recalcPaymentStatus = (invoice) => {
   const paid = Number(invoice.paidAmount || 0);
   invoice.balanceAmount = Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
 
-  if (paid <= 0) invoice.paymentStatus = "pending";
-  else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
-  else invoice.paymentStatus = "partial";
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const getReturnedQtyByLine = async (salesInvoiceId) => {
@@ -570,7 +572,7 @@ export const getAllSalesReturns = async ({
       .populate("warehouseId", "name code")
       .populate("salesInvoiceId", "invoiceNo invoiceDate")
       .select(
-        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal status createdAt items.discountAmt"
+        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal totalSGST totalCGST status createdAt items.qty items.discountAmt"
       )
       .sort(transactionListSort)
       .skip(skip)
@@ -582,6 +584,7 @@ export const getAllSalesReturns = async ({
   const enriched = data.map(({ items, ...row }) => ({
     ...row,
     discountAmount: getDocumentDiscountAmount({ items }),
+    totalQty: sumDocumentItemQty(items),
   }));
 
   return {

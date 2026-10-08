@@ -6,7 +6,10 @@ import {
   withSalesReturnTaxTotals,
 } from "./salesReturnReport.tax.js";
 import { salesReturnReportSort } from "../../../utils/documentSort.js";
-import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../../utils/discountTotals.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 
@@ -77,6 +80,7 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
   const data = rawData.map((row) => ({
     ...withSalesReturnTaxTotals(row),
     discountAmount: getDocumentDiscountAmount(row),
+    totalQty: sumDocumentItemQty(row.items),
   }));
 
   const allData = await SalesReturn.find(filter)
@@ -91,6 +95,7 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
       acc.totalCGST += tax.totalCGST;
       acc.totalTax += tax.totalTax;
       acc.grandTotal += row.grandTotal ?? 0;
+      acc.totalQty += sumDocumentItemQty(row.items);
       if (row.salesType === "retail") acc.retailCount += 1;
       if (row.salesType === "wholesale") acc.wholesaleCount += 1;
       if (row.returnMode === "invoice") acc.invoiceModeCount += 1;
@@ -99,6 +104,7 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
     },
     {
       totalNetAmount: 0,
+      totalQty: 0,
       totalSGST: 0,
       totalCGST: 0,
       totalTax: 0,
@@ -111,6 +117,7 @@ export const salesReturnReport = asyncHandler(async (req, res) => {
   );
 
   summary.totalReturns = total;
+  summary.totalQty = Number(summary.totalQty.toFixed(3));
   summary.totalNetAmount = Number(summary.totalNetAmount.toFixed(2));
   summary.totalSGST = Number(summary.totalSGST.toFixed(2));
   summary.totalCGST = Number(summary.totalCGST.toFixed(2));

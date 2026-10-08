@@ -6,6 +6,7 @@ import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
 import { assertUniqueItemName, normalizeItemRates } from "./item.service.js";
+import { assertItemNotInUse } from "../masterUsage.service.js";
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ const ctrl = crudFactory(itemModel, {
   selectFields:
     "name code uomId categoryId hsnCode price taxPercent description isActive createdAt",
   hasTextIndex: true,
+  searchFieldNames: ["name", "description", "code", "hsnCode"],
   populateOpts: [
     { path: "categoryId", select: "name" },
     { path: "uomId", select: "name shortCode" },
@@ -108,7 +110,20 @@ router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
 router.post("/add", create);
 router.put("/:id", update);
-router.delete("/:id", ctrl.remove);
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    await assertItemNotInUse(req.companyId, req.params.id);
+    const doc = await itemModel
+      .findOneAndDelete({
+        _id: req.params.id,
+        companyId: req.companyId,
+      })
+      .lean();
+    if (!doc) throw new ApiError(404, "Record not found");
+    res.json(new ApiResponse(200, null, "Deleted successfully"));
+  })
+);
 
 export default router;
 

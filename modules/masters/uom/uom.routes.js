@@ -4,6 +4,10 @@ import Uom from "./uom.model.js";
 import express from "express";
 import protect from "../../../middlewares/authHandler.js";
 import crudFactory from "../../../utils/crudFactory.js";
+import asyncHandler from "../../../utils/asyncHandler.js";
+import ApiResponse from "../../../utils/ApiResponse.js";
+import ApiError from "../../../utils/ApiError.js";
+import { assertUomNotInUse } from "../masterUsage.service.js";
 
 const router = express.Router();
 
@@ -18,7 +22,18 @@ router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
 router.post("/add", ctrl.create);
 router.put("/:id", ctrl.update);
-router.delete("/:id", ctrl.remove);
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    await assertUomNotInUse(req.companyId, req.params.id);
+    const doc = await Uom.findOneAndDelete({
+      _id: req.params.id,
+      companyId: req.companyId,
+    }).lean();
+    if (!doc) throw new ApiError(404, "Record not found");
+    res.json(new ApiResponse(200, null, "Deleted successfully"));
+  })
+);
 
 // router.patch("/:id/restore", ctrl.restore);
 // router.get("/", ctrl.getAll);

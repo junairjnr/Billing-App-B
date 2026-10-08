@@ -1,4 +1,5 @@
 import customerModel from "../masters/customer/customer.model.js";
+import { salesPartyListCustomerTypeFilter } from "../masters/customer/customer.service.js";
 import itemModel from "../masters/item/item.model.js";
 import Warehouse from "../warehouse/warehouse.model.js";
 import * as salesService from "../sales/salesInvoice/salesInvoice.service.js";
@@ -83,15 +84,25 @@ const fetchRows = async (reportType, ctx) => {
       const filter = { companyId };
       const { type, customerType, search } = exportQuery(ctx);
       if (typeof type === "string" && type) filter.type = type;
-      if (customerType === "retail" || customerType === "wholesale") {
-        filter.customerType = customerType;
+
+      const andClauses = [];
+      if (customerType === "wholesale" || customerType === "retail") {
+        andClauses.push(salesPartyListCustomerTypeFilter(customerType));
       }
       const safeSearch = optionalSearchString(search);
       if (safeSearch) {
-        filter.$or = ["name", "phone", "email"].map((field) => ({
-          [field]: regexContains(safeSearch),
-        }));
+        andClauses.push({
+          $or: ["name", "phone", "email", "gstin"].map((field) => ({
+            [field]: regexContains(safeSearch),
+          })),
+        });
       }
+      if (andClauses.length === 1) {
+        Object.assign(filter, andClauses[0]);
+      } else if (andClauses.length > 1) {
+        filter.$and = andClauses;
+      }
+
       return customerModel
         .find(filter)
         .select("name email phone gstin customerType address type")

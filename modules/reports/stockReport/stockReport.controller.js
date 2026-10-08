@@ -55,6 +55,8 @@ export const stockReport = asyncHandler(async (req, res) => {
             totalQty: 0,
             totalSGST: 0,
             totalCGST: 0,
+            totalTax: 0,
+            totalTaxableValue: 0,
             totalStockValue: 0,
           },
         })
@@ -103,17 +105,26 @@ export const stockReport = asyncHandler(async (req, res) => {
 
   data.sort((a, b) => (a.itemId?.name ?? "").localeCompare(b.itemId?.name ?? ""));
 
+  const totalSGST = Number(
+    data.reduce((sum, row) => sum + (row.sgst ?? 0), 0).toFixed(2)
+  );
+  const totalCGST = Number(
+    data.reduce((sum, row) => sum + (row.cgst ?? 0), 0).toFixed(2)
+  );
+  const totalTaxableValue = Number(
+    data.reduce((sum, row) => sum + (row.stockValue ?? 0), 0).toFixed(2)
+  );
+  const totalTax = Number((totalSGST + totalCGST).toFixed(2));
+  const totalStockValue = Number((totalTaxableValue + totalTax).toFixed(2));
+
   const summary = {
     totalItems: data.length,
     totalQty: Number(data.reduce((sum, row) => sum + (row.qty ?? 0), 0).toFixed(2)),
-    totalSGST: Number(data.reduce((sum, row) => sum + (row.sgst ?? 0), 0).toFixed(2)),
-    totalCGST: Number(data.reduce((sum, row) => sum + (row.cgst ?? 0), 0).toFixed(2)),
-    totalTaxableValue: Number(
-      data.reduce((sum, row) => sum + (row.stockValue ?? 0), 0).toFixed(2)
-    ),
-    totalStockValue: Number(
-      data.reduce((sum, row) => sum + (row.stockValueTotal ?? 0), 0).toFixed(2)
-    ),
+    totalSGST,
+    totalCGST,
+    totalTax,
+    totalTaxableValue,
+    totalStockValue,
   };
 
   const total = data.length;

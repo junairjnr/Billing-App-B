@@ -8,7 +8,7 @@ const router = express.Router();
 const ctrl = crudFactory(bankAccount, {
   selectFields:
     "accountName bankName accountNumber ifscCode branch accountType upiId isDefault isActive createdAt",
-  hasTextIndex: false,
+  searchFieldNames: ["accountName", "bankName", "accountNumber", "ifscCode", "upiId"],
 });
 
 router.use(protect);

@@ -5,8 +5,14 @@ import SalesInvoice from "../sales/salesInvoice/salesInvoice.model.js";
 import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import Customer from "../masters/customer/customer.model.js";
 import BankAccount from "../masters/bank/bank.model.js";
-import { persistUnlinkedManualReturnsForVendor } from "../purchase/purchaseReturn/purchaseReturnCredits.js";
-import { persistUnlinkedManualReturnsForCustomer } from "../sales/salesReturn/salesReturnCredits.js";
+import {
+  persistUnlinkedManualReturnsForVendor,
+  persistUnlinkedManualReturnsForInvoice,
+} from "../purchase/purchaseReturn/purchaseReturnCredits.js";
+import {
+  persistUnlinkedManualReturnsForCustomer,
+  persistUnlinkedManualReturnsForInvoice as persistUnlinkedManualSalesReturnsForInvoice,
+} from "../sales/salesReturn/salesReturnCredits.js";
 import ApiError from "../../utils/ApiError.js";
 import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
 import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
@@ -14,6 +20,11 @@ import { getNextVoucherNo } from "../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../utils/sanitizeInput.js";
 import { isBankPaymentMode, isCashPaymentMode } from "../../utils/paymentModes.js";
+import {
+  getEffectiveInvoiceTotal,
+  computeInvoiceBalance,
+  computePaymentStatus,
+} from "../../utils/invoicePaymentStatus.js";
 
 const partySnapshotFromCustomer = (party) => ({
   name: party.name,
@@ -27,35 +38,25 @@ const partySnapshotFromCustomer = (party) => ({
     .join(", "),
 });
 
-const getEffectiveInvoiceTotal = (inv) =>
-  Math.max(
-    0,
-    Number((Number(inv.grandTotal || 0) - Number(inv.returnedAmount || 0)).toFixed(2))
-  );
-
 const updateInvoicePayment = (invoice, amountAdjusted) => {
   const paidBefore = invoice.paidAmount ?? 0;
   const newPaid = Number((paidBefore + amountAdjusted).toFixed(2));
   const effectiveTotal = getEffectiveInvoiceTotal(invoice);
   const newBalance = Number((effectiveTotal - newPaid).toFixed(2));
-  const newStatus =
-    newBalance <= 0.01 ? "paid" : newPaid > 0 ? "partial" : "pending";
 
   invoice.paidAmount = newPaid;
   invoice.balanceAmount = Math.max(0, newBalance);
-  invoice.paymentStatus = newStatus;
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const reverseInvoicePayment = (invoice, amountAdjusted) => {
   const newPaid = Number(Math.max(0, invoice.paidAmount - amountAdjusted).toFixed(2));
   const effectiveTotal = getEffectiveInvoiceTotal(invoice);
   const newBalance = Number((effectiveTotal - newPaid).toFixed(2));
-  const newStatus =
-    newPaid <= 0 ? "pending" : newBalance <= 0.01 ? "paid" : "partial";
 
   invoice.paidAmount = newPaid;
   invoice.balanceAmount = Math.max(0, newBalance);
-  invoice.paymentStatus = newStatus;
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const getInvoiceModel = (invoiceType) =>
@@ -67,20 +68,6 @@ const partyObjectId = (partyId) => {
     throw new ApiError(400, "Invalid party id");
   }
   return new mongoose.Types.ObjectId(id);
-};
-
-const computeInvoiceBalance = (inv) => {
-  const paid = inv.paidAmount ?? 0;
-  const effectiveTotal = getEffectiveInvoiceTotal(inv);
-  return Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
-};
-
-const computePaymentStatus = (inv) => {
-  const effectiveTotal = getEffectiveInvoiceTotal(inv);
-  const paid = inv.paidAmount ?? 0;
-  if (paid <= 0) return "pending";
-  if (paid >= effectiveTotal - 0.009) return "paid";
-  return "partial";
 };
 
 /** Fix legacy invoices created before paidAmount/balanceAmount/paymentStatus existed. */
@@ -105,8 +92,7 @@ const syncLegacyPaymentFields = async (Model, filter) => {
     const needsUpdate =
       (inv.balanceAmount ?? 0) !== balance ||
       (inv.paidAmount ?? 0) !== paid ||
-      !inv.paymentStatus ||
-      (balance > 0 && inv.paymentStatus === "paid" && paid < getEffectiveInvoiceTotal(inv) - 0.009);
+      inv.paymentStatus !== paymentStatus;
 
     if (needsUpdate) {
       bulkOps.push({
@@ -132,6 +118,7 @@ export const getOutstandingInvoices = async ({
   financialYearId,
   partyId,
   invoiceType,
+  focusInvoiceId,
 }) => {
   const Model = getInvoiceModel(invoiceType);
   const partyField = invoiceType === "sales" ? "customerId" : "vendorId";
@@ -148,8 +135,22 @@ export const getOutstandingInvoices = async ({
 
   if (invoiceType === "purchase") {
     await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyOid);
+    if (focusInvoiceId) {
+      await persistUnlinkedManualReturnsForInvoice(
+        companyId,
+        financialYearId,
+        focusInvoiceId
+      );
+    }
   } else {
     await persistUnlinkedManualReturnsForCustomer(companyId, financialYearId, partyOid);
+    if (focusInvoiceId) {
+      await persistUnlinkedManualSalesReturnsForInvoice(
+        companyId,
+        financialYearId,
+        focusInvoiceId
+      );
+    }
   }
 
   const invoices = await Model.find({
@@ -180,7 +181,7 @@ export const getOutstandingInvoices = async ({
       effectiveTotal,
       paidAmount: paid,
       balanceAmount: balance,
-      paymentStatus: inv.paymentStatus ?? computePaymentStatus(inv),
+      paymentStatus: computePaymentStatus(inv),
     };
   });
 
@@ -281,6 +282,25 @@ export const createVoucher = async ({
     await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, partyId);
   } else {
     await persistUnlinkedManualReturnsForCustomer(companyId, financialYearId, partyId);
+  }
+
+  const validAllocationsPre = (allocations || []).filter(
+    (a) => Number(a.amountAdjusted || a.allocated) > 0
+  );
+  for (const alloc of validAllocationsPre) {
+    if (invoiceType === "purchase") {
+      await persistUnlinkedManualReturnsForInvoice(
+        companyId,
+        financialYearId,
+        alloc.invoiceId
+      );
+    } else {
+      await persistUnlinkedManualSalesReturnsForInvoice(
+        companyId,
+        financialYearId,
+        alloc.invoiceId
+      );
+    }
   }
 
   return withTransaction(async (session) => {
@@ -489,7 +509,12 @@ export const getAllVouchers = async ({
   };
 
   if (partyId) filter.partyId = partyId;
-  if (paymentMode) filter.paymentMode = paymentMode;
+  if (paymentMode) {
+    filter.paymentMode =
+      paymentMode === "bank"
+        ? { $in: ["bank", "bank_transfer"] }
+        : paymentMode;
+  }
   const safeSearch = optionalSearchString(search);
   if (safeSearch) filter.voucherNo = regexContains(safeSearch);
 
@@ -519,7 +544,14 @@ export const getAllVouchers = async ({
         $group: {
           _id: null,
           count: { $sum: 1 },
-          totalAmount: { $sum: { $ifNull: ["$totalAmount", 0] } },
+          totalAmount: {
+            $sum: {
+              $ifNull: [
+                "$totalAmount",
+                { $ifNull: ["$amount", 0] },
+              ],
+            },
+          },
         },
       },
     ]),
@@ -560,7 +592,7 @@ export const getAllVouchers = async ({
     totalPages: Math.ceil(total / Number(limit)),
     hasNext: Number(page) < Math.ceil(total / Number(limit)),
     summary: {
-      count: summaryRows[0]?.count ?? 0,
+      count: summaryRows[0]?.count ?? total,
       totalAmount: Number((summaryRows[0]?.totalAmount ?? 0).toFixed(2)),
     },
   };

@@ -8,6 +8,7 @@ import {
   getPurchaseInvoiceTaxTotals,
   withPurchaseInvoiceTaxTotals,
 } from "./purchaseReport.tax.js";
+import { sumDocumentItemQty } from "../../../utils/discountTotals.js";
 
 
 // ── 2. PURCHASE REPORT ────────────────────────────────────────
@@ -69,7 +70,10 @@ export const purchaseReport = asyncHandler(async (req, res) => {
     PurchaseInvoice.countDocuments(filter),
   ]);
 
-  const data = rawData.map(withPurchaseInvoiceTaxTotals);
+  const data = rawData.map((row) => ({
+    ...withPurchaseInvoiceTaxTotals(row),
+    totalQty: sumDocumentItemQty(row.items),
+  }));
 
   // Summary totals
   const allData = await PurchaseInvoice.find(filter)
@@ -84,10 +88,12 @@ export const purchaseReport = asyncHandler(async (req, res) => {
       acc.totalCGST += tax.totalCGST;
       acc.totalTax += tax.totalTax;
       acc.grandTotal += row.grandTotal ?? 0;
+      acc.totalQty += sumDocumentItemQty(row.items);
       return acc;
     },
     {
       totalNetAmount: 0,
+      totalQty: 0,
       totalSGST: 0,
       totalCGST: 0,
       totalTax: 0,
@@ -96,6 +102,7 @@ export const purchaseReport = asyncHandler(async (req, res) => {
   );
 
   summary.totalInvoices = total;
+  summary.totalQty = Number(summary.totalQty.toFixed(3));
   summary.totalNetAmount = Number(summary.totalNetAmount.toFixed(2));
   summary.totalSGST = Number(summary.totalSGST.toFixed(2));
   summary.totalCGST = Number(summary.totalCGST.toFixed(2));

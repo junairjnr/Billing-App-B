@@ -11,11 +11,16 @@ import { getNextPurchaseReturnNo } from "../../documentNumber/documentNumber.ser
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
 import { transactionListSort } from "../../../utils/documentSort.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../../utils/discountTotals.js";
 import { normalizeAttachments } from "../../upload/upload.utils.js";
 import {
   applyManualReturnToInvoice,
   findPurchaseInvoiceForManualReturn,
 } from "./purchaseReturnCredits.js";
+import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
 
 const recalcPaymentStatus = (invoice) => {
   const effectiveTotal = Math.max(
@@ -25,9 +30,7 @@ const recalcPaymentStatus = (invoice) => {
   const paid = Number(invoice.paidAmount || 0);
   invoice.balanceAmount = Math.max(0, Number((effectiveTotal - paid).toFixed(2)));
 
-  if (paid <= 0) invoice.paymentStatus = "pending";
-  else if (paid >= effectiveTotal - 0.009) invoice.paymentStatus = "paid";
-  else invoice.paymentStatus = "partial";
+  invoice.paymentStatus = computePaymentStatus(invoice);
 };
 
 const getReturnedQtyByLine = async (purchaseInvoiceId) => {
@@ -120,6 +123,8 @@ export const getReturnableItems = async (companyId, purchaseInvoiceId) => {
       uomShortCode:
         typeof uomRef === "object" ? uomRef?.shortCode || uomRef?.name || "" : "",
       rate: row.rate,
+      discount: Number(row.discount) || 0,
+      discountAmt: Number(row.discountAmt) || 0,
       taxPercent: row.taxPercent,
       taxableValue: row.taxableValue,
       sgst: row.sgst,
@@ -157,8 +162,11 @@ const vendorSnapshotFromCustomer = (vendor) => ({
 const buildManualPurchaseReturnLine = (dbItem, row, slNo) => {
   const qty = Number(row.qty);
   const rate = Number(row.rate);
+  const discount = Number(row.discount) || 0;
   const taxPercent = Number(row.taxPercent ?? dbItem.taxPercent ?? 18);
-  const taxableValue = Number((qty * rate).toFixed(2));
+  const grossAmt = Number((qty * rate).toFixed(2));
+  const discountAmt = Number(((grossAmt * discount) / 100).toFixed(2));
+  const taxableValue = Number((grossAmt - discountAmt).toFixed(2));
   const sgst = Number(((taxableValue * taxPercent) / 200).toFixed(2));
   const cgst = Number(((taxableValue * taxPercent) / 200).toFixed(2));
   const total = Number((taxableValue + sgst + cgst).toFixed(2));
@@ -171,6 +179,8 @@ const buildManualPurchaseReturnLine = (dbItem, row, slNo) => {
     uomId: dbItem.uomId?._id ?? dbItem.uomId,
     rate,
     qty,
+    discount,
+    discountAmt,
     taxPercent,
     taxableValue,
     sgst,
@@ -497,7 +507,7 @@ export const getAllPurchaseReturns = async ({
       .populate("warehouseId", "name code")
       .populate("purchaseInvoiceId", "invoiceNo vendorInvoiceNo purchaseDate")
       .select(
-        "returnNo returnDate returnMode purchaseInvoiceId originalInvoiceNo referenceInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId grandTotal status createdAt"
+        "returnNo returnDate returnMode purchaseInvoiceId originalInvoiceNo referenceInvoiceNo vendorInvoiceNo vendorId vendorSnapshot warehouseId netAmount grandTotal totalSGST totalCGST status createdAt items.qty items.discountAmt"
       )
       .sort(transactionListSort)
       .skip(skip)
@@ -506,8 +516,14 @@ export const getAllPurchaseReturns = async ({
     PurchaseReturn.countDocuments(filter),
   ]);
 
+  const enriched = data.map(({ items, ...row }) => ({
+    ...row,
+    discountAmount: getDocumentDiscountAmount({ items }),
+    totalQty: sumDocumentItemQty(items),
+  }));
+
   return {
-    data,
+    data: enriched,
     total,
     page: Number(page),
     totalPages: Math.ceil(total / Number(limit)),

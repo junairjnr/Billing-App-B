@@ -106,15 +106,20 @@ const crudFactory = (Model, options = {}) => {
     hasTextIndex = false,
     populateOpts = null,
     filterFields = [],
+    filterFieldBuilders = {},
+    searchFieldNames = null,
   } = options;
 
   // Text indexes are whole-word only, so search runs as a regex over the same
   // fields — "raj" then still finds "Rajesh".
-  const searchFields = hasTextIndex
-    ? searchableStringFields(Model)
-    : Model.schema.path("name")
-      ? ["name"]
-      : [];
+  const searchFields =
+    Array.isArray(searchFieldNames) && searchFieldNames.length
+      ? searchFieldNames
+      : hasTextIndex
+        ? searchableStringFields(Model)
+        : Model.schema.path("name")
+          ? ["name"]
+          : [];
 
   // ── Helper: apply populate (single or array) ────────────────
   const applyPopulate = (query) => {
@@ -145,20 +150,35 @@ const crudFactory = (Model, options = {}) => {
 
       if (isActive !== undefined) filter.isActive = isActive === "true";
 
+      const andClauses = [];
+
       for (const field of filterFields) {
         const value = req.query[field];
         if (typeof value !== "string" || !value.trim()) continue;
+        const trimmed = value.trim();
+        if (filterFieldBuilders[field]) {
+          andClauses.push(filterFieldBuilders[field](trimmed));
+          continue;
+        }
         const allowed = Model.schema.path(field)?.enumValues;
-        if (allowed?.length && !allowed.includes(value.trim())) continue;
-        filter[field] = value.trim();
+        if (allowed?.length && !allowed.includes(trimmed)) continue;
+        filter[field] = trimmed;
       }
 
-      if (search && searchFields.length) {
+      if (searchFields.length) {
         const safeSearch = optionalSearchString(search);
         if (safeSearch) {
           const pattern = regexContains(safeSearch);
-          filter.$or = searchFields.map((field) => ({ [field]: pattern }));
+          andClauses.push({
+            $or: searchFields.map((field) => ({ [field]: pattern })),
+          });
         }
+      }
+
+      if (andClauses.length === 1) {
+        Object.assign(filter, andClauses[0]);
+      } else if (andClauses.length > 1) {
+        filter.$and = andClauses;
       }
 
       const skip = (Number(page) - 1) * Number(limit);

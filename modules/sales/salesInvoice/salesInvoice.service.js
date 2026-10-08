@@ -12,8 +12,18 @@ import { getNextSalesInvoiceNo } from "../../documentNumber/documentNumber.servi
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { optionalObjectId, optionalSearchString } from "../../../utils/sanitizeInput.js";
 import { transactionListSort } from "../../../utils/documentSort.js";
-import { persistUnlinkedManualReturnsForCustomer } from "../salesReturn/salesReturnCredits.js";
-import { getDocumentDiscountAmount } from "../../../utils/discountTotals.js";
+import {
+  persistUnlinkedManualReturnsForCustomer,
+  persistUnlinkedManualReturnsForInvoice,
+} from "../salesReturn/salesReturnCredits.js";
+import {
+  getDocumentDiscountAmount,
+  sumDocumentItemQty,
+} from "../../../utils/discountTotals.js";
+import {
+  computeInvoiceBalance,
+  computePaymentStatus,
+} from "../../../utils/invoicePaymentStatus.js";
 import Branch from "../../branch/branch.model.js";
 import {
   calculateLineGst,
@@ -326,17 +336,25 @@ export const getAllSalesInvoices = async ({
       .populate("customerId",   "name phone")
       .populate("warehouseId",  "name code")
       .populate("priceLevelId", "name taxPercent")
-      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal returnedAmount paidAmount balanceAmount paymentStatus saleMode status createdAt cashDiscountAmt items.discountAmt")
+      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal returnedAmount paidAmount balanceAmount paymentStatus saleMode status createdAt cashDiscountAmt totalSGST totalCGST items.qty items.discountAmt")
       .sort(transactionListSort)
       .skip(skip).limit(limit).lean(),
     SalesInvoice.countDocuments(filter),
   ]);
 
-  const enriched = data.map(({ items, ...inv }) => ({
-    ...inv,
-    customerSnapshot: resolveCustomerSnapshot(inv),
-    discountAmount: getDocumentDiscountAmount({ items, ...inv }),
-  }));
+  const enriched = data.map(({ items, ...inv }) => {
+    const row = {
+      ...inv,
+      customerSnapshot: resolveCustomerSnapshot(inv),
+      discountAmount: getDocumentDiscountAmount({ items, ...inv }),
+      totalQty: sumDocumentItemQty(items),
+    };
+    return {
+      ...row,
+      balanceAmount: computeInvoiceBalance(row),
+      paymentStatus: computePaymentStatus(row),
+    };
+  });
 
   return {
     data: enriched,
@@ -361,6 +379,11 @@ export const getOneSalesInvoice = async (companyId, invoiceId) => {
     meta.financialYearId,
     customerId
   );
+  await persistUnlinkedManualReturnsForInvoice(
+    meta.companyId,
+    meta.financialYearId,
+    invoiceId
+  );
 
   const invoice = await SalesInvoice.findOne({ _id: invoiceId, companyId })
     .populate("customerId",    "name phone gstin address")
@@ -370,8 +393,13 @@ export const getOneSalesInvoice = async (companyId, invoiceId) => {
     .populate("items.uomId",   "name shortCode")
     .lean();
   if (!invoice) throw new ApiError(404, "Sales invoice not found");
-  return {
+  const row = {
     ...invoice,
     customerSnapshot: resolveCustomerSnapshot(invoice),
+  };
+  return {
+    ...row,
+    balanceAmount: computeInvoiceBalance(row),
+    paymentStatus: computePaymentStatus(row),
   };
 };
