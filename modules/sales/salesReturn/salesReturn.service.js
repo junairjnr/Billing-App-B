@@ -572,7 +572,7 @@ export const getAllSalesReturns = async ({
       .populate("warehouseId", "name code")
       .populate("salesInvoiceId", "invoiceNo invoiceDate")
       .select(
-        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId grandTotal totalSGST totalCGST status createdAt items.qty items.discountAmt"
+        "returnNo returnDate returnMode salesInvoiceId originalInvoiceNo referenceInvoiceNo salesType customerId customerSnapshot warehouseId netAmount grandTotal totalSGST totalCGST status createdAt items.qty items.discountAmt"
       )
       .sort(transactionListSort)
       .skip(skip)

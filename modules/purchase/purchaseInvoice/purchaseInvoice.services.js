@@ -218,7 +218,16 @@ export const createPurchaseInvoice = async ({
 };
 
 export const getAllPurchaseInvoices = async ({
-  companyId, branchId, financialYearId, page = 1, limit = 20, search = "",
+  companyId,
+  branchId,
+  financialYearId,
+  page = 1,
+  limit = 20,
+  search = "",
+  warehouseId,
+  dateFrom,
+  dateTo,
+  status,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
@@ -229,6 +238,17 @@ export const getAllPurchaseInvoices = async ({
       { vendorInvoiceNo: pattern },
       { "vendorSnapshot.name": pattern },
     ];
+  }
+  if (warehouseId) filter.warehouseId = warehouseId;
+  if (status) filter.status = status;
+  if (dateFrom || dateTo) {
+    filter.purchaseDate = {};
+    if (dateFrom) filter.purchaseDate.$gte = new Date(dateFrom);
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      filter.purchaseDate.$lte = end;
+    }
   }
 
   const skip = (page - 1) * limit;

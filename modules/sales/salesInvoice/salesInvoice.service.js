@@ -336,7 +336,7 @@ export const getAllSalesInvoices = async ({
       .populate("customerId",   "name phone")
       .populate("warehouseId",  "name code")
       .populate("priceLevelId", "name taxPercent")
-      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot grandTotal returnedAmount paidAmount balanceAmount paymentStatus saleMode status createdAt cashDiscountAmt totalSGST totalCGST items.qty items.discountAmt")
+      .select("invoiceNo invoiceDate salesType customerId customerSnapshot warehouseId priceLevelSnapshot netAmount grandTotal returnedAmount paidAmount balanceAmount paymentStatus saleMode status createdAt cashDiscountAmt totalSGST totalCGST items.qty items.discountAmt")
       .sort(transactionListSort)
       .skip(skip).limit(limit).lean(),
     SalesInvoice.countDocuments(filter),

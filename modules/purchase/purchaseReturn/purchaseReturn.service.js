@@ -19,6 +19,7 @@ import { normalizeAttachments } from "../../upload/upload.utils.js";
 import {
   applyManualReturnToInvoice,
   findPurchaseInvoiceForManualReturn,
+  persistUnlinkedManualReturnsForVendor,
 } from "./purchaseReturnCredits.js";
 import { computePaymentStatus } from "../../../utils/invoicePaymentStatus.js";
 
@@ -256,7 +257,7 @@ const createManualPurchaseReturn = async ({
   const originalInvoiceNo = referenceInvoiceNo?.trim() || "MANUAL";
   const normalizedAttachments = normalizeAttachments(companyId, attachments);
 
-  return withTransaction(async (session) => {
+  const purchaseReturn = await withTransaction(async (session) => {
     const [purchaseReturn] = await PurchaseReturn.create(
       [
         {
@@ -314,6 +315,7 @@ const createManualPurchaseReturn = async ({
       vendorId,
       referenceInvoiceNo,
       vendorInvoiceNo,
+      warehouseId,
     });
 
     if (matchedInvoice) {
@@ -328,6 +330,10 @@ const createManualPurchaseReturn = async ({
 
     return purchaseReturn;
   });
+
+  await persistUnlinkedManualReturnsForVendor(companyId, financialYearId, vendorId);
+
+  return purchaseReturn;
 };
 
 export const createPurchaseReturn = async (payload) => {

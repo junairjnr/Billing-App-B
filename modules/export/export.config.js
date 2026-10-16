@@ -111,11 +111,28 @@ export const EXPORT_REPORTS = {
       { key: "invoiceNo", header: "Invoice No", default: true, width: 24, get: (r) => r.invoiceNo || "" },
       { key: "vendorInvoiceNo", header: "Vendor Invoice No", default: true, width: 24, get: (r) => r.vendorInvoiceNo || "" },
       { key: "purchaseDate", header: "Date", default: true, get: (r) => fmtDate(r.purchaseDate) },
-      { key: "vendor", header: "Vendor", default: true, get: (r) => r.vendorSnapshot?.name || r.vendorId?.name || "" },
+      {
+        key: "vendor",
+        header: "Vendor",
+        default: true,
+        get: (r) =>
+          r.vendorSnapshot?.name ||
+          (r.vendorId && typeof r.vendorId === "object" ? r.vendorId.name : "") ||
+          "",
+      },
+      {
+        key: "warehouse",
+        header: "Warehouse",
+        default: true,
+        get: (r) =>
+          (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
+      },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
+      { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.totalCGST ?? 0 },
-      { key: "grandTotal", header: "Total", default: true, get: (r) => r.grandTotal ?? 0 },
+      { key: "grandTotal", header: "Grand Total", default: true, get: (r) => r.grandTotal ?? 0 },
       { key: "balanceAmount", header: "Balance", default: false, get: (r) => invoiceBalance(r) },
       {
         key: "paymentStatus",
@@ -171,12 +188,24 @@ export const EXPORT_REPORTS = {
         key: "vendor",
         header: "Vendor",
         default: true,
-        get: (r) => r.vendorSnapshot?.name || r.vendorId?.name || "",
+        get: (r) =>
+          r.vendorSnapshot?.name ||
+          (r.vendorId && typeof r.vendorId === "object" ? r.vendorId.name : "") ||
+          "",
       },
+      {
+        key: "warehouse",
+        header: "Warehouse",
+        default: true,
+        get: (r) =>
+          (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
+      },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
+      { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.totalCGST ?? 0 },
-      { key: "amount", header: "Amount", default: true, get: (r) => r.grandTotal ?? 0 },
+      { key: "grandTotal", header: "Grand Total", default: true, get: (r) => r.grandTotal ?? 0 },
       { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
     ],
   },
@@ -323,8 +352,22 @@ export const EXPORT_REPORTS = {
       { key: "invoiceNo", header: "Invoice No", default: true, width: 24, get: (r) => r.invoiceNo || "" },
       { key: "date", header: "Date", default: true, get: (r) => fmtDate(r.purchaseDate) },
       { key: "purchaseDate", header: "Date", default: false, get: (r) => fmtDate(r.purchaseDate) },
-      { key: "vendor", header: "Vendor", default: true, get: (r) => r.vendorSnapshot?.name || r.vendorId?.name || "" },
-      { key: "warehouse", header: "Warehouse", default: true, get: (r) => r.warehouseId?.name || "" },
+      {
+        key: "vendor",
+        header: "Vendor",
+        default: true,
+        get: (r) =>
+          r.vendorSnapshot?.name ||
+          (r.vendorId && typeof r.vendorId === "object" ? r.vendorId.name : "") ||
+          "",
+      },
+      {
+        key: "warehouse",
+        header: "Warehouse",
+        default: true,
+        get: (r) =>
+          (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
+      },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
@@ -366,8 +409,22 @@ export const EXPORT_REPORTS = {
       { key: "returnDate", header: "Date", default: true, get: (r) => fmtDate(r.returnDate) },
       { key: "originalInvoiceNo", header: "Original Invoice", default: true, get: (r) => r.originalInvoiceNo || "" },
       { key: "returnMode", header: "Return Mode", default: true, get: (r) => r.returnMode || "" },
-      { key: "vendor", header: "Vendor", default: true, get: (r) => r.vendorSnapshot?.name || "" },
-      { key: "warehouse", header: "Warehouse", default: true, get: (r) => r.warehouseId?.name || "" },
+      {
+        key: "vendor",
+        header: "Vendor",
+        default: true,
+        get: (r) =>
+          r.vendorSnapshot?.name ||
+          (r.vendorId && typeof r.vendorId === "object" ? r.vendorId.name : "") ||
+          "",
+      },
+      {
+        key: "warehouse",
+        header: "Warehouse",
+        default: true,
+        get: (r) =>
+          (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
+      },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
