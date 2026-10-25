@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Warehouse from "./warehouse.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { assertWarehouseNotInUse } from "../masters/masterUsage.service.js";
 
 export const createWarehouse = async (companyId, branchId, payload) => {
   // Only one default per branch
@@ -101,6 +102,7 @@ export const deactivateWarehouse = async (companyId, warehouseId) => {
 };
 
 export const deleteWarehouse = async (companyId, warehouseId) => {
+  await assertWarehouseNotInUse(companyId, warehouseId);
   const wh = await Warehouse.findOneAndDelete({ _id: warehouseId, companyId });
   if (!wh) throw new ApiError(404, "Warehouse not found");
   return wh;

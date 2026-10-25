@@ -3,7 +3,8 @@ import ApiResponse  from "../../../utils/ApiResponse.js";
 import * as salesService from "./salesInvoice.service.js";
 
 const getAll = asyncHandler(async (req, res) => {
-  const { page, limit, search, salesType, customerId } = req.query;
+  const { page, limit, search, salesType, customerId, warehouseId, dateFrom, dateTo, status } =
+    req.query;
   const data = await salesService.getAllSalesInvoices({
     companyId:       req.companyId,
     branchId:        req.branchId,
@@ -13,6 +14,10 @@ const getAll = asyncHandler(async (req, res) => {
     search,
     salesType,
     customerId,
+    warehouseId,
+    dateFrom,
+    dateTo,
+    status,
   });
   res.json(new ApiResponse(200, data));
 });

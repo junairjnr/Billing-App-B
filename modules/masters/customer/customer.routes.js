@@ -9,6 +9,7 @@ import {
   assertUniqueCustomerName,
   salesPartyListCustomerTypeFilter,
 } from "./customer.service.js";
+import { assertCustomerNotInUse } from "../masterUsage.service.js";
 
 const router = express.Router();
 
@@ -116,6 +117,19 @@ router.get("/", ctrl.getAll);
 router.get("/:id", ctrl.getOne);
 router.post("/add", create);
 router.put("/:id", update);
-router.delete("/:id", ctrl.remove);
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    await assertCustomerNotInUse(req.companyId, req.params.id);
+    const doc = await customerModel
+      .findOneAndDelete({
+        _id: req.params.id,
+        companyId: req.companyId,
+      })
+      .lean();
+    if (!doc) throw new ApiError(404, "Record not found");
+    res.json(new ApiResponse(200, null, "Deleted successfully"));
+  })
+);
 
 export default router;

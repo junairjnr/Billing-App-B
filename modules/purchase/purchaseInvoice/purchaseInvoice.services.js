@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import PurchaseInvoice from "./purchaseInvoice.model.js";
 import Customer        from "../../masters/customer/customer.model.js";
 import Item            from "../../masters/item/item.model.js";
@@ -11,7 +12,7 @@ import {
 } from "../purchaseReturn/purchaseReturnCredits.js";
 import { getNextPurchaseInvoiceNo } from "../../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
-import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { optionalObjectId, optionalSearchString } from "../../../utils/sanitizeInput.js";
 import { normalizeAttachments } from "../../upload/upload.utils.js";
 import { transactionListSort } from "../../../utils/documentSort.js";
 import {
@@ -225,6 +226,7 @@ export const getAllPurchaseInvoices = async ({
   limit = 20,
   search = "",
   warehouseId,
+  vendorId,
   dateFrom,
   dateTo,
   status,
@@ -239,7 +241,10 @@ export const getAllPurchaseInvoices = async ({
       { "vendorSnapshot.name": pattern },
     ];
   }
-  if (warehouseId) filter.warehouseId = warehouseId;
+  const safeWarehouseId = optionalObjectId(warehouseId, "warehouse id");
+  if (safeWarehouseId) filter.warehouseId = safeWarehouseId;
+  const safeVendorId = optionalObjectId(vendorId, "vendor id");
+  if (safeVendorId) filter.vendorId = new mongoose.Types.ObjectId(safeVendorId);
   if (status) filter.status = status;
   if (dateFrom || dateTo) {
     filter.purchaseDate = {};

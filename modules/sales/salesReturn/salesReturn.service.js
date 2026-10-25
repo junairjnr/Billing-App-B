@@ -25,6 +25,7 @@ import {
 import {
   applyManualReturnToInvoice,
   findSalesInvoiceForManualReturn,
+  persistUnlinkedManualReturnsForCustomer,
 } from "./salesReturnCredits.js";
 import {
   getDocumentDiscountAmount,
@@ -316,7 +317,7 @@ const createManualSalesReturn = async ({
   const returnNo = await getNextSalesReturnNo(companyId, financialYearId, salesType);
   const originalInvoiceNo = referenceInvoiceNo?.trim() || "MANUAL";
 
-  return withTransaction(async (session) => {
+  const salesReturn = await withTransaction(async (session) => {
     const [salesReturn] = await SalesReturn.create(
       [
         {
@@ -374,6 +375,8 @@ const createManualSalesReturn = async ({
       financialYearId,
       customerId,
       referenceInvoiceNo,
+      warehouseId,
+      salesType,
     });
 
     if (matchedInvoice) {
@@ -388,6 +391,10 @@ const createManualSalesReturn = async ({
 
     return salesReturn;
   });
+
+  await persistUnlinkedManualReturnsForCustomer(companyId, financialYearId, customerId);
+
+  return salesReturn;
 };
 
 export const createSalesReturn = async (payload) => {

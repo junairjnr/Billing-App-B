@@ -3,7 +3,8 @@ import ApiResponse  from "../../../utils/ApiResponse.js";
 import * as purchaseService from "./purchaseInvoice.services.js";
 
 const getAll = asyncHandler(async (req, res) => {
-  const { page, limit, search, warehouseId, dateFrom, dateTo, status } = req.query;
+  const { page, limit, search, warehouseId, vendorId, dateFrom, dateTo, status } =
+    req.query;
   const data = await purchaseService.getAllPurchaseInvoices({
     companyId:       req.companyId,
     branchId:        req.branchId,
@@ -12,6 +13,7 @@ const getAll = asyncHandler(async (req, res) => {
     limit:           Number(limit) || 20,
     search,
     warehouseId,
+    vendorId,
     dateFrom,
     dateTo,
     status,

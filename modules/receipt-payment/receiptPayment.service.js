@@ -18,7 +18,8 @@ import { withTransaction, sessionOpts } from "../../utils/withTransaction.js";
 import { postReceipt, postVendorPayment, reverseDocumentJournal } from "../accounting/journal/posting.service.js";
 import { getNextVoucherNo } from "../documentNumber/documentNumber.service.js";
 import { regexContains } from "../../utils/escapeRegex.js";
-import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import { optionalObjectId, optionalSearchString } from "../../utils/sanitizeInput.js";
+import { salesPartyListCustomerTypeFilter } from "../masters/customer/customer.service.js";
 import { isBankPaymentMode, isCashPaymentMode } from "../../utils/paymentModes.js";
 import {
   getEffectiveInvoiceTotal,
@@ -496,6 +497,7 @@ export const getAllVouchers = async ({
   dateFrom,
   dateTo,
   search,
+  customerType,
   page = 1,
   limit = 20,
 }) => {
@@ -508,7 +510,27 @@ export const getAllVouchers = async ({
     status: { $ne: "cancelled" },
   };
 
-  if (partyId) filter.partyId = partyId;
+  const safePartyId = optionalObjectId(partyId, "party id");
+  const shopType =
+    customerType === "retail" || customerType === "wholesale" ? customerType : null;
+
+  if (voucherType === "receipt" && shopType) {
+    const matchingIds = await Customer.find({
+      companyId,
+      type: "sales",
+      isActive: { $ne: false },
+      ...salesPartyListCustomerTypeFilter(shopType),
+    }).distinct("_id");
+
+    if (safePartyId) {
+      const allowed = matchingIds.some((id) => String(id) === String(safePartyId));
+      filter.partyId = allowed ? safePartyId : { $in: [] };
+    } else {
+      filter.partyId = { $in: matchingIds };
+    }
+  } else if (safePartyId) {
+    filter.partyId = safePartyId;
+  }
   if (paymentMode) {
     filter.paymentMode =
       paymentMode === "bank"

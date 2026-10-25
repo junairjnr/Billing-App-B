@@ -42,8 +42,19 @@ export const createPayment = asyncHandler(async (req, res) => {
 });
 
 export const listReceipts = asyncHandler(async (req, res) => {
-  const { partyId, customerId, paymentMode, dateFrom, dateTo, search, page, limit, invoiceId } =
-    req.query;
+  const {
+    partyId,
+    customerId,
+    customerType,
+    salesType,
+    paymentMode,
+    dateFrom,
+    dateTo,
+    search,
+    page,
+    limit,
+    invoiceId,
+  } = req.query;
 
   if (invoiceId) {
     const data = await svc.getVouchersByInvoice({
@@ -59,6 +70,7 @@ export const listReceipts = asyncHandler(async (req, res) => {
     ...ctx(req),
     voucherType: "receipt",
     partyId: partyId || customerId,
+    customerType: customerType || salesType,
     paymentMode,
     dateFrom,
     dateTo,

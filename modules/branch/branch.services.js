@@ -1,5 +1,6 @@
 import Branch  from "./branch.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { assertBranchNotInUse } from "../masters/masterUsage.service.js";
 import { optionalSearchString } from "../../utils/sanitizeInput.js";
 import { regexContains } from "../../utils/escapeRegex.js";
 
@@ -50,6 +51,7 @@ const deactivate = async (companyId, branchId) => {
 };
 
 const remove = async (companyId, branchId) => {
+  await assertBranchNotInUse(companyId, branchId);
   const branch = await Branch.findOneAndDelete({ _id: branchId, companyId }).lean();
   if (!branch) throw new ApiError(404, "Branch not found");
   return branch;

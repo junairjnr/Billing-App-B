@@ -115,7 +115,56 @@ const computeColumnWidth = (col, header, cellValues) => {
   return Math.min(Math.max(maxLen + 2, minWidth), 60);
 };
 
-const styleSheet = (sheet, columns, dataRows) => {
+const isSummableColumn = (col) => {
+  if (isSlNoColumn(col) || isDocNoColumn(col)) return false;
+  return (
+    isMoneyColumn(col) ||
+    isQtyColumn(col) ||
+    isPercentColumn(col) ||
+    isNumericColumn(col, 0)
+  );
+};
+
+const computeTotalsRowValues = (columns, rows) => {
+  if (!rows.length) return null;
+
+  const hasSummable = columns.some(isSummableColumn);
+  if (!hasSummable) return null;
+
+  let labelPlaced = false;
+  let hasSum = false;
+  const values = columns.map((col) => {
+    if (isSlNoColumn(col)) return "";
+
+    if (isSummableColumn(col)) {
+      let sum = 0;
+      let any = false;
+      for (let i = 0; i < rows.length; i += 1) {
+        const raw = col.get(rows[i], i);
+        const val = resolveCellValue(col, raw);
+        if (typeof val === "number" && Number.isFinite(val)) {
+          sum += val;
+          any = true;
+        }
+      }
+      if (any) {
+        hasSum = true;
+        return sum;
+      }
+      return "";
+    }
+
+    if (!labelPlaced) {
+      labelPlaced = true;
+      return "Total";
+    }
+    return "";
+  });
+
+  return hasSum ? values : null;
+};
+
+const styleSheet = (sheet, columns, dataRows, { totalsRowIndex = null } = {}) => {
   const lastRow = sheet.rowCount;
   const columnCount = columns.length;
 
@@ -128,6 +177,7 @@ const styleSheet = (sheet, columns, dataRows) => {
   for (let rowIndex = 1; rowIndex <= lastRow; rowIndex += 1) {
     const row = sheet.getRow(rowIndex);
     const isHeader = rowIndex === 1;
+    const isTotals = totalsRowIndex != null && rowIndex === totalsRowIndex;
 
     for (let colIndex = 1; colIndex <= columnCount; colIndex += 1) {
       const cell = row.getCell(colIndex);
@@ -135,6 +185,15 @@ const styleSheet = (sheet, columns, dataRows) => {
 
       cell.border = cellBorder;
       cell.alignment = getCellAlignment(col, cell.value, isHeader);
+
+      if (isTotals) {
+        cell.font = { bold: true, size: 11 };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE8EEF4" },
+        };
+      }
 
       if (isHeader) {
         continue;
@@ -184,7 +243,15 @@ export const buildWorkbook = async (rows, columns, sheetName = "Report") => {
     sheet.addRow(values);
   }
 
-  styleSheet(sheet, columns, dataRows);
+  const totalsValues = computeTotalsRowValues(columns, rows);
+  let totalsRowIndex = null;
+  if (totalsValues) {
+    dataRows.push(totalsValues);
+    sheet.addRow(totalsValues);
+    totalsRowIndex = sheet.rowCount;
+  }
+
+  styleSheet(sheet, columns, dataRows, { totalsRowIndex });
 
   return workbook.xlsx.writeBuffer();
 };

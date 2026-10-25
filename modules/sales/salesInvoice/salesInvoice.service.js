@@ -319,6 +319,7 @@ export const createSalesInvoice = async ({
 export const getAllSalesInvoices = async ({
   companyId, branchId, financialYearId,
   page = 1, limit = 20, search = "", salesType, customerId,
+  warehouseId, dateFrom, dateTo, status,
 }) => {
   const filter = { companyId, branchId, financialYearId, isActive: true };
   const safeSearch = optionalSearchString(search);
@@ -329,6 +330,18 @@ export const getAllSalesInvoices = async ({
   if (salesType) filter.salesType = salesType;
   const safeCustomerId = optionalObjectId(customerId, "customer id");
   if (safeCustomerId) filter.customerId = safeCustomerId;
+  const safeWarehouseId = optionalObjectId(warehouseId, "warehouse id");
+  if (safeWarehouseId) filter.warehouseId = safeWarehouseId;
+  if (status) filter.status = status;
+  if (dateFrom || dateTo) {
+    filter.invoiceDate = {};
+    if (dateFrom) filter.invoiceDate.$gte = new Date(dateFrom);
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      filter.invoiceDate.$lte = end;
+    }
+  }
 
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([

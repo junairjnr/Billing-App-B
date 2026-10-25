@@ -130,6 +130,9 @@ export const salesReturnHistory = asyncHandler(async (req, res) => {
     totalTaxable: Number(allRows.reduce((sum, row) => sum + row.taxableValue, 0).toFixed(2)),
     totalSGST: Number(allRows.reduce((sum, row) => sum + row.sgst, 0).toFixed(2)),
     totalCGST: Number(allRows.reduce((sum, row) => sum + row.cgst, 0).toFixed(2)),
+    totalTax: Number(
+      allRows.reduce((sum, row) => sum + row.sgst + row.cgst + (row.igst ?? 0), 0).toFixed(2)
+    ),
     avgRate: allRows.length
       ? Number((allRows.reduce((sum, row) => sum + row.rate, 0) / allRows.length).toFixed(2))
       : 0,

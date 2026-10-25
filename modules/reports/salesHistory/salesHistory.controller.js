@@ -142,6 +142,9 @@ export const salesHistory = asyncHandler(async (req, res) => {
     ),
     totalSGST: Number(allRows.reduce((s, r) => s + r.sgst, 0).toFixed(2)),
     totalCGST: Number(allRows.reduce((s, r) => s + r.cgst, 0).toFixed(2)),
+    totalTax: Number(
+      allRows.reduce((s, r) => s + r.sgst + r.cgst + (r.igst ?? 0), 0).toFixed(2)
+    ),
     totalDiscount: Number(
       allRows.reduce((s, r) => s + r.discountAmt, 0).toFixed(2)
     ),
