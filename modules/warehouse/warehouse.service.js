@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import Warehouse from "./warehouse.model.js";
 import ApiError from "../../utils/ApiError.js";
 import { assertWarehouseNotInUse } from "../masters/masterUsage.service.js";
+import { optionalObjectId, optionalSearchString } from "../../utils/sanitizeInput.js";
+import { regexContains } from "../../utils/escapeRegex.js";
 
 export const createWarehouse = async (companyId, branchId, payload) => {
   // Only one default per branch
@@ -30,10 +32,12 @@ export const getAll = async (companyId, queryParams = {}) => {
   };
   if (!branchId)
     console.log("No branchId provided, fetching warehouses for entire company");
-  if (branchId) filter.branchId = branchId;
+  const safeBranchId = optionalObjectId(branchId, "branchId");
+  if (safeBranchId) filter.branchId = safeBranchId;
 
-  if (search) {
-    filter.name = { $regex: search, $options: "i" };
+  const safeSearch = optionalSearchString(search);
+  if (safeSearch) {
+    filter.name = regexContains(safeSearch);
   }
 
   const skip = (page - 1) * limit;

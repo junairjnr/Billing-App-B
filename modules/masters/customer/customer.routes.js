@@ -10,8 +10,35 @@ import {
   salesPartyListCustomerTypeFilter,
 } from "./customer.service.js";
 import { assertCustomerNotInUse } from "../masterUsage.service.js";
+import { optionalEnum, optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
 
 const router = express.Router();
+
+const pickCustomerWritePayload = (body) => {
+  const allowed = [
+    "type",
+    "name",
+    "email",
+    "phone",
+    "gstin",
+    "customerType",
+    "creditLimit",
+    "address",
+    "isActive",
+  ];
+  const payload = {};
+  for (const key of allowed) {
+    if (body[key] !== undefined) payload[key] = body[key];
+  }
+  if (payload.type !== undefined) {
+    optionalEnum(payload.type, ["sales", "purchase"], "party type");
+  }
+  if (payload.customerType !== undefined) {
+    optionalEnum(payload.customerType, ["retail", "wholesale"], "customer type");
+  }
+  return payload;
+};
 
 const selectFields =
   "name email phone gstin customerType creditLimit address isActive createdAt type";
@@ -30,30 +57,30 @@ const ctrl = crudFactory(customerModel, {
 });
 
 const create = asyncHandler(async (req, res) => {
-  delete req.body.companyId;
-  req.body.name = await assertUniqueCustomerName(req.companyId, req.body.name);
+  const payload = pickCustomerWritePayload(req.body);
+  payload.name = await assertUniqueCustomerName(req.companyId, payload.name);
 
   try {
     const doc = await customerModel.create({
-      ...req.body,
+      ...payload,
       companyId: req.companyId,
     });
     res.status(201).json(new ApiResponse(201, doc, "Created successfully"));
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, `Party name "${req.body.name}" already exists`);
+      throw new ApiError(409, `Party name "${payload.name}" already exists`);
     }
     throw err;
   }
 });
 
 const update = asyncHandler(async (req, res) => {
-  delete req.body.companyId;
+  const payload = pickCustomerWritePayload(req.body);
 
-  if (req.body.name !== undefined) {
-    req.body.name = await assertUniqueCustomerName(
+  if (payload.name !== undefined) {
+    payload.name = await assertUniqueCustomerName(
       req.companyId,
-      req.body.name,
+      payload.name,
       req.params.id
     );
   }
@@ -62,7 +89,7 @@ const update = asyncHandler(async (req, res) => {
     const doc = await customerModel
       .findOneAndUpdate(
         { _id: req.params.id, companyId: req.companyId },
-        { $set: req.body },
+        { $set: payload },
         { new: true, runValidators: true }
       )
       .select(selectFields)
@@ -72,7 +99,7 @@ const update = asyncHandler(async (req, res) => {
     res.json(new ApiResponse(200, doc, "Updated successfully"));
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, `Party name "${req.body.name}" already exists`);
+      throw new ApiError(409, `Party name "${payload.name}" already exists`);
     }
     throw err;
   }
@@ -82,7 +109,13 @@ router.get(
   "/search",
   protect,
   asyncHandler(async (req, res) => {
-    const { q = "", type, customerType } = req.query;
+    const q = optionalSearchString(req.query.q, 100);
+    const type = optionalEnum(req.query.type, ["sales", "purchase"], "type");
+    const customerType = optionalEnum(
+      req.query.customerType,
+      ["retail", "wholesale"],
+      "customerType"
+    );
 
     const filter = { companyId: req.companyId, isActive: true };
     if (type) filter.type = type;
@@ -92,11 +125,9 @@ router.get(
 
     const clauses = [];
     if (q) {
+      const pattern = regexContains(q);
       clauses.push({
-        $or: [
-          { name: { $regex: q, $options: "i" } },
-          { phone: { $regex: q, $options: "i" } },
-        ],
+        $or: [{ name: pattern }, { phone: pattern }],
       });
     }
     if (clauses.length === 1) Object.assign(filter, clauses[0]);

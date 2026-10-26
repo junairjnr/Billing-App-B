@@ -6,6 +6,10 @@ import {
   salesReturnReportSort,
 } from "../../../utils/documentSort.js";
 import { reportSearchMatcher } from "../reportSearch.js";
+import {
+  optionalEnum,
+  optionalObjectId,
+} from "../../../utils/sanitizeInput.js";
 
 const SGST_RATE = 9;
 const CGST_RATE = 9;
@@ -26,12 +30,20 @@ const lineTax = (itemRow) => {
 };
 
 export const salesReturnHistory = asyncHandler(async (req, res) => {
-  const { itemId, customerId, salesType, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+  const { dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+  const itemId = optionalObjectId(req.query.itemId, "itemId");
+  const customerId = optionalObjectId(req.query.customerId, "customerId");
+  const salesType = optionalEnum(
+    req.query.salesType,
+    ["retail", "wholesale"],
+    "salesType"
+  );
 
   const matchesSearch = reportSearchMatcher(search);
 
   const filter = {
     companyId: req.companyId,
+    branchId: req.branchId,
     financialYearId: req.fyId,
     isActive: { $ne: false },
     status: "confirmed",

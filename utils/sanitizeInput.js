@@ -33,3 +33,21 @@ export const optionalSearchString = (value, maxLength = 100) => {
   if (!trimmed) return undefined;
   return trimmed.slice(0, maxLength);
 };
+
+/** Whitelist string query values (status, salesType, etc.). */
+export const optionalEnum = (value, allowed, fieldName) => {
+  if (value == null || value === "") return undefined;
+  if (typeof value !== "string") {
+    throw new ApiError(400, `${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (!allowed.includes(trimmed)) {
+    throw new ApiError(400, `Invalid ${fieldName}`);
+  }
+  return trimmed;
+};
+
+export const assignOptionalObjectId = (filter, query, fieldName, label = fieldName) => {
+  const id = optionalObjectId(query[fieldName], label);
+  if (id) filter[fieldName] = id;
+};

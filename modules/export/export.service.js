@@ -107,6 +107,7 @@ const fetchRows = async (reportType, ctx) => {
         .find(filter)
         .select("name email phone gstin customerType address type")
         .sort({ name: 1 })
+        .limit(EXPORT_ROW_LIMIT)
         .lean();
     }
     case "products":
@@ -118,9 +119,13 @@ const fetchRows = async (reportType, ctx) => {
           { path: "uomId", select: "name shortCode" },
         ])
         .sort({ name: 1 })
+        .limit(EXPORT_ROW_LIMIT)
         .lean();
     case "warehouses":
-      return Warehouse.find({ companyId }).sort({ name: 1 }).lean();
+      return Warehouse.find({ companyId })
+        .sort({ name: 1 })
+        .limit(EXPORT_ROW_LIMIT)
+        .lean();
     case "sales": {
       const result = await salesService.getAllSalesInvoices({
         companyId,

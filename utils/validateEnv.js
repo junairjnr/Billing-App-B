@@ -8,8 +8,11 @@ export const validateEnv = () => {
 
   const secret = process.env.JWT_SECRET.trim();
   if (secret.length < 32) {
-    console.warn(
-      "⚠️  JWT_SECRET is shorter than 32 characters. Use a long random value before production deployment."
-    );
+    const msg =
+      "JWT_SECRET must be at least 32 characters. Use a long random value.";
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(msg);
+    }
+    console.warn(`⚠️  ${msg}`);
   }
 };

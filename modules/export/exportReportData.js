@@ -33,12 +33,51 @@ import {
   salesInvoiceReportSort,
   salesReturnReportSort,
 } from "../../utils/documentSort.js";
-import { optionalSearchString } from "../../utils/sanitizeInput.js";
+import {
+  optionalEnum,
+  optionalObjectId,
+  optionalSearchString,
+} from "../../utils/sanitizeInput.js";
 import { regexContains } from "../../utils/escapeRegex.js";
 import { reportSearchMatcher } from "../reports/reportSearch.js";
 
 const DEFAULT_GST_PERCENT = 18;
 const EXPORT_LIMIT = 10000;
+
+const DOC_STATUS = ["draft", "confirmed", "cancelled"];
+const SALES_TYPES = ["retail", "wholesale"];
+const RETURN_MODES = ["invoice", "manual"];
+const STOCK_MOVEMENT_TYPES = [
+  "purchase_in",
+  "purchase_return",
+  "sales_out",
+  "sales_return",
+  "transfer_in",
+  "transfer_out",
+  "adjustment_in",
+  "adjustment_out",
+  "opening_stock",
+];
+const SHOP_PARTY_TYPES = ["customer", "vendor"];
+
+const sanitizeExportFilters = (query = {}) => ({
+  customerId: optionalObjectId(query.customerId, "customerId"),
+  vendorId: optionalObjectId(query.vendorId, "vendorId"),
+  warehouseId: optionalObjectId(query.warehouseId, "warehouseId"),
+  itemId: optionalObjectId(query.itemId, "itemId"),
+  categoryId: optionalObjectId(query.categoryId, "categoryId"),
+  partyId: optionalObjectId(query.partyId, "partyId"),
+  salesType: optionalEnum(query.salesType, SALES_TYPES, "salesType"),
+  status: optionalEnum(query.status, DOC_STATUS, "status"),
+  returnMode: optionalEnum(query.returnMode, RETURN_MODES, "returnMode"),
+  movementType: optionalEnum(query.movementType, STOCK_MOVEMENT_TYPES, "movementType"),
+  partyType: optionalEnum(query.partyType, SHOP_PARTY_TYPES, "partyType"),
+  category: optionalSearchString(query.category, 100),
+  includeZero: query.includeZero === "true" ? "true" : undefined,
+  search: optionalSearchString(query.search),
+  dateFrom: typeof query.dateFrom === "string" ? query.dateFrom.trim() : undefined,
+  dateTo: typeof query.dateTo === "string" ? query.dateTo.trim() : undefined,
+});
 
 const buildDateFilter = (query, field = "invoiceDate") => {
   const { dateFrom, dateTo } = query;
@@ -88,7 +127,8 @@ const applyDocSearch = (filter, search, orFields) => {
 };
 
 export const fetchOperationalReportRows = async (reportType, ctx) => {
-  const { companyId, branchId, financialYearId, query = {} } = ctx;
+  const { companyId, branchId, financialYearId, query: rawQuery = {} } = ctx;
+  const query = sanitizeExportFilters(rawQuery);
 
   switch (reportType) {
     case "sales-report": {
@@ -247,7 +287,13 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       return data.rows || [];
     }
     case "sales-history": {
-      const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query) };
+      const filter = {
+        companyId,
+        branchId,
+        financialYearId,
+        isActive: true,
+        ...buildDateFilter(query),
+      };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
       if (query.salesType) filter.salesType = query.salesType;
@@ -267,7 +313,13 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       );
     }
     case "purchase-history": {
-      const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "purchaseDate") };
+      const filter = {
+        companyId,
+        branchId,
+        financialYearId,
+        isActive: true,
+        ...buildDateFilter(query, "purchaseDate"),
+      };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.vendorId) filter.vendorId = query.vendorId;
       const invoices = await purchaseInvoiceModel.find(filter).populate("vendorId", "name").populate("warehouseId", "name code").populate("items.itemId", "name hsnCode").select("invoiceNo purchaseDate vendorId vendorSnapshot warehouseId items grandTotal status createdAt").sort(purchaseInvoiceReportSort).limit(EXPORT_LIMIT).lean();
@@ -304,7 +356,13 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       );
     }
     case "sales-return-history": {
-      const filter = { companyId, financialYearId, isActive: true, ...buildDateFilter(query, "returnDate") };
+      const filter = {
+        companyId,
+        branchId,
+        financialYearId,
+        isActive: true,
+        ...buildDateFilter(query, "returnDate"),
+      };
       if (query.itemId) filter["items.itemId"] = query.itemId;
       if (query.customerId) filter.customerId = query.customerId;
       const returns = await SalesReturn.find(filter).populate("customerId", "name").populate("items.itemId", "name hsnCode").select("returnNo returnDate originalInvoiceNo salesType customerSnapshot items grandTotal status createdAt").sort(salesReturnReportSort).limit(EXPORT_LIMIT).lean();
@@ -325,6 +383,7 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
     case "purchase-return-history": {
       const filter = {
         companyId,
+        branchId,
         financialYearId,
         isActive: { $ne: false },
         status: "confirmed",

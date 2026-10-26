@@ -6,6 +6,7 @@ import {
   purchaseReturnReportSort,
 } from "../../../utils/documentSort.js";
 import { reportSearchMatcher } from "../reportSearch.js";
+import { optionalObjectId } from "../../../utils/sanitizeInput.js";
 
 const DEFAULT_GST_PERCENT = 18;
 
@@ -26,12 +27,15 @@ const lineTax = (itemRow) => {
 };
 
 export const purchaseReturnHistory = asyncHandler(async (req, res) => {
-  const { itemId, vendorId, dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+  const { dateFrom, dateTo, search, page = 1, limit = 20 } = req.query;
+  const itemId = optionalObjectId(req.query.itemId, "itemId");
+  const vendorId = optionalObjectId(req.query.vendorId, "vendorId");
 
   const matchesSearch = reportSearchMatcher(search);
 
   const filter = {
     companyId: req.companyId,
+    branchId: req.branchId,
     financialYearId: req.fyId,
     isActive: { $ne: false },
     status: "confirmed",

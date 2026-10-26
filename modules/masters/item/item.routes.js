@@ -5,6 +5,8 @@ import itemModel from "./item.model.js";
 import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
+import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { regexContains } from "../../../utils/escapeRegex.js";
 import { assertUniqueItemName, normalizeItemRates } from "./item.service.js";
 import { assertItemNotInUse } from "../masterUsage.service.js";
 
@@ -86,14 +88,12 @@ router.get(
   "/search",
   protect,
   asyncHandler(async (req, res) => {
-    const { q = "" } = req.query;
+    const q = optionalSearchString(req.query.q, 100);
 
     const filter = { companyId: req.companyId, isActive: true };
     if (q) {
-      filter.$or = [
-        { name: { $regex: q, $options: "i" } },
-        { code: { $regex: q, $options: "i" } },
-      ];
+      const pattern = regexContains(q);
+      filter.$or = [{ name: pattern }, { code: pattern }];
     }
 
     const data = await itemModel.find(filter)

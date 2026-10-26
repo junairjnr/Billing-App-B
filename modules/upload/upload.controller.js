@@ -6,8 +6,10 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.js";
 import PurchaseReturn from "../purchase/purchaseReturn/purchaseReturn.model.js";
 import {
+  assertFileMagicMatchesMime,
   deletePurchaseUploadFile,
   resolvePurchaseUploadFile,
+  sanitizeDownloadFileName,
 } from "./upload.utils.js";
 
 async function isPurchaseAttachmentInUse(companyId, fileName) {
@@ -21,6 +23,13 @@ async function isPurchaseAttachmentInUse(companyId, fileName) {
 
 export const uploadPurchaseFile = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "No file uploaded");
+
+  try {
+    assertFileMagicMatchesMime(req.file.path, req.file.mimetype);
+  } catch (err) {
+    deletePurchaseUploadFile(req.companyId, req.file.filename);
+    throw err;
+  }
 
   const data = {
     fileName: req.file.filename,
@@ -39,12 +48,15 @@ export const downloadPurchaseFile = asyncHandler(async (req, res) => {
     throw new ApiError(404, "File not found");
   }
 
-  const downloadName = path.basename(req.query.name || req.params.fileName);
+  const downloadName = sanitizeDownloadFileName(
+    req.query.name,
+    req.params.fileName
+  );
   const disposition = req.query.inline === "1" ? "inline" : "attachment";
 
   res.setHeader(
     "Content-Disposition",
-    `${disposition}; filename="${downloadName.replace(/"/g, "")}"`
+    `${disposition}; filename="${downloadName}"`
   );
   res.sendFile(filePath);
 });
