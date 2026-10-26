@@ -164,6 +164,10 @@ app.use("/api/export", exportRoutes);
 app.use("/api/document-numbers", documentNumberRoutes);
 app.use("/api/uploads", uploadRoutes);
 
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 app.get("/api/customers/:id/outstanding", protect, fyScope, rpCtrl.customerOutstanding);
 app.get("/api/vendors/:id/outstanding", protect, fyScope, rpCtrl.vendorOutstanding);
 

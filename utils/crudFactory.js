@@ -80,6 +80,7 @@ import ApiResponse from "./ApiResponse.js";
 import ApiError from "./ApiError.js";
 import { regexContains } from "./escapeRegex.js";
 import { optionalSearchString } from "./sanitizeInput.js";
+import { clampPage, clampPageSize } from "./paginationLimits.js";
 
 const ALLOWED_SORT_FIELDS = new Set(["createdAt", "updatedAt", "name", "code"]);
 
@@ -181,7 +182,9 @@ const crudFactory = (Model, options = {}) => {
         filter.$and = andClauses;
       }
 
-      const skip = (Number(page) - 1) * Number(limit);
+      const safeLimit = clampPageSize(limit);
+      const safePage = clampPage(page);
+      const skip = (safePage - 1) * safeLimit;
       const sortOrder = order === "asc" ? 1 : -1;
       const safeSortBy = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : "createdAt";
 
@@ -189,7 +192,7 @@ const crudFactory = (Model, options = {}) => {
         .select(selectFields)
         .sort({ [safeSortBy]: sortOrder })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(safeLimit)
         .lean();
 
       query = applyPopulate(query);
@@ -203,10 +206,10 @@ const crudFactory = (Model, options = {}) => {
         new ApiResponse(200, {
           data,
           total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / Number(limit)),
-          hasNext: Number(page) < Math.ceil(total / Number(limit)),
+          page: safePage,
+          limit: safeLimit,
+          totalPages: Math.ceil(total / safeLimit),
+          hasNext: safePage < Math.ceil(total / safeLimit),
         })
       );
     }),
