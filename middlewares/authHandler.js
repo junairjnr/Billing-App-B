@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import ApiError from "../utils/ApiError.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import User from "../modules/user/user.model.js";
+import { normalizeObjectIdString } from "../utils/sanitizeInput.js";
 
 const protect = asyncHandler(async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -21,14 +22,21 @@ const protect = asyncHandler(async (req, res, next) => {
     throw new ApiError(401, "Unauthorized - Invalid token");
   }
 
+  const branchId =
+    normalizeObjectIdString(user.branchId ?? decoded.branchId) ?? undefined;
+  const companyId =
+    normalizeObjectIdString(user.companyId ?? decoded.companyId) ??
+    String(decoded.companyId);
+
   req.user = {
     ...decoded,
     id: user._id,
     role: user.role,
-    branchId: user.branchId ?? decoded.branchId,
+    branchId,
+    companyId,
   };
-  req.companyId = decoded.companyId;
-  req.branchId = req.user.branchId;
+  req.companyId = companyId;
+  req.branchId = branchId;
   next();
 });
 

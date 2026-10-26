@@ -15,13 +15,31 @@ export const requireString = (value, fieldName, { maxLength = 500 } = {}) => {
   return trimmed;
 };
 
+const objectIdHexPattern = /^[a-f\d]{24}$/i;
+
+/** Coerce JWT / Mongoose ObjectId / populated `{ _id }` refs to a 24-char hex string. */
+export const normalizeObjectIdString = (value) => {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "object") {
+    if (typeof value.toHexString === "function") {
+      return value.toHexString();
+    }
+    if (value._id != null) {
+      return normalizeObjectIdString(value._id);
+    }
+  }
+  return null;
+};
+
 /** Optional id filter — undefined when blank, rejected when not a valid ObjectId. */
 export const optionalObjectId = (value, fieldName = "Id") => {
   if (value == null || value === "") return undefined;
-  if (typeof value !== "string" || !/^[a-f\d]{24}$/i.test(value.trim())) {
+  const normalized = normalizeObjectIdString(value);
+  if (!normalized || !objectIdHexPattern.test(normalized)) {
     throw new ApiError(400, `Invalid ${fieldName}`);
   }
-  return value.trim();
+  return normalized;
 };
 
 export const optionalSearchString = (value, maxLength = 100) => {
