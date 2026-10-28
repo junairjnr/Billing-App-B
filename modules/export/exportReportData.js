@@ -141,7 +141,9 @@ export const fetchOperationalReportRows = async (reportType, ctx) => {
       const rows = await SalesInvoice.find(filter)
         .populate("customerId", "name phone")
         .populate("priceLevelId", "name")
-        .select("invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items.discountAmt cashDiscountAmt netAmount totalTax grandTotal status createdAt")
+        .select(
+          "invoiceNo invoiceDate salesType customerSnapshot priceLevelSnapshot items cashDiscountAmt netAmount totalSGST totalCGST totalTax grandTotal status createdAt"
+        )
         .sort(salesInvoiceReportSort)
         .limit(EXPORT_LIMIT)
         .lean();

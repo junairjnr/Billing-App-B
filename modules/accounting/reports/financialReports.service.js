@@ -1,28 +1,66 @@
+import mongoose from "mongoose";
 import JournalEntry from "../journal/journalEntry.model.js";
 import ChartOfAccount from "../chartOfAccount/chartOfAccount.model.js";
 import Customer from "../../masters/customer/customer.model.js";
+import ApiError from "../../../utils/ApiError.js";
+import { normalizeObjectIdString } from "../../../utils/sanitizeInput.js";
 
 const round2 = (n) => Number(Number(n).toFixed(2));
 
+/** Match string or ObjectId storage (JWT / auth may send hex strings). */
+const scopeIdMatch = (field, value) => {
+  if (value == null || value === "") return null;
+  const normalized = normalizeObjectIdString(value);
+  if (!normalized || !mongoose.Types.ObjectId.isValid(normalized)) {
+    return { [field]: value };
+  }
+  const oid = new mongoose.Types.ObjectId(normalized);
+  return { $or: [{ [field]: normalized }, { [field]: oid }] };
+};
+
+const mergeScopeFilters = (...parts) => {
+  const clauses = parts.flatMap((part) => {
+    if (!part) return [];
+    if (part.$and) return part.$and;
+    return [part];
+  });
+  if (clauses.length === 0) return {};
+  if (clauses.length === 1) return clauses[0];
+  return { $and: clauses };
+};
+
 const buildScopeFilter = ({ companyId, branchId, financialYearId, dateFrom, dateTo }) => {
-  const filter = {
-    companyId,
-    branchId,
-    financialYearId,
-    status: "posted",
-  };
+  const clauses = [{ status: "posted" }];
+
+  for (const [field, value] of [
+    ["companyId", companyId],
+    ["branchId", branchId],
+    ["financialYearId", financialYearId],
+  ]) {
+    const match = scopeIdMatch(field, value);
+    if (match) clauses.push(match);
+  }
 
   if (dateFrom || dateTo) {
-    filter.entryDate = {};
-    if (dateFrom) filter.entryDate.$gte = new Date(dateFrom);
+    const entryDate = {};
+    if (dateFrom) entryDate.$gte = new Date(dateFrom);
     if (dateTo) {
       const end = new Date(dateTo);
       end.setHours(23, 59, 59, 999);
-      filter.entryDate.$lte = end;
+      entryDate.$lte = end;
     }
+    clauses.push({ entryDate });
   }
 
-  return filter;
+  return mergeScopeFilters(...clauses);
+};
+
+const normalizePartyId = (partyId) => {
+  const normalized = normalizeObjectIdString(partyId);
+  if (!normalized || !mongoose.Types.ObjectId.isValid(normalized)) {
+    throw new ApiError(400, "Invalid party id");
+  }
+  return normalized;
 };
 
 /** Aggregate journal lines by account */
@@ -210,10 +248,16 @@ export const getSubLedger = async ({
   dateFrom,
   dateTo,
 }) => {
-  const filter = buildScopeFilter({ companyId, branchId, financialYearId, dateFrom, dateTo });
+  const partyKey = normalizePartyId(partyId);
   const partyField = partyType === "customer" ? "lines.customerId" : "lines.vendorId";
+  const partyOid = new mongoose.Types.ObjectId(partyKey);
 
-  filter[partyField] = partyId;
+  const filter = mergeScopeFilters(
+    buildScopeFilter({ companyId, branchId, financialYearId, dateFrom, dateTo }),
+    {
+      $or: [{ [partyField]: partyKey }, { [partyField]: partyOid }],
+    }
+  );
 
   const entries = await JournalEntry.find(filter)
     .sort({ entryDate: 1, createdAt: 1 })
@@ -224,10 +268,10 @@ export const getSubLedger = async ({
 
   for (const entry of entries) {
     for (const line of entry.lines) {
-      const matches =
-        partyType === "customer"
-          ? String(line.customerId) === String(partyId)
-          : String(line.vendorId) === String(partyId);
+      const linePartyId = normalizeObjectIdString(
+        partyType === "customer" ? line.customerId : line.vendorId
+      );
+      const matches = linePartyId === partyKey;
 
       if (!matches) continue;
 
@@ -343,11 +387,19 @@ export const getAllPartyBalances = async (scope, partyType) => {
   if (!partyIds.length) return [];
 
   const typeFilter = partyType === "customer" ? "sales" : "purchase";
-  const parties = await Customer.find({
-    companyId: scope.companyId,
-    _id: { $in: partyIds },
-    type: typeFilter,
-  })
+  const partyObjectIds = partyIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  const customerFilter = mergeScopeFilters(
+    scopeIdMatch("companyId", scope.companyId) ?? {},
+    {
+      _id: { $in: partyObjectIds },
+      type: typeFilter,
+    }
+  );
+
+  const parties = await Customer.find(customerFilter)
     .select("name phone gstin")
     .lean();
 

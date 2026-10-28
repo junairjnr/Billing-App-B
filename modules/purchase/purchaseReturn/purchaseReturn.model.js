@@ -88,6 +88,8 @@ const purchaseReturnSchema = new mongoose.Schema(
     total: { type: Number, default: 0 },
     roundOff: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
+    /** Portion of grandTotal applied to invoice returnedAmount (manual returns). */
+    appliedCreditAmount: { type: Number, default: 0 },
 
     status: {
       type: String,

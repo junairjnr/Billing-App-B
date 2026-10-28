@@ -1,4 +1,5 @@
 import asyncHandler from "../../utils/asyncHandler.js";
+import ApiError from "../../utils/ApiError.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import * as coaService from "./chartOfAccount/chartOfAccount.service.js";
 import * as journalService from "./journal/journal.service.js";
@@ -91,9 +92,12 @@ export const balanceSheet = asyncHandler(async (req, res) => {
 
 export const subLedger = asyncHandler(async (req, res) => {
   const { partyId, partyType } = req.query;
+  if (!partyId || typeof partyId !== "string" || !partyId.trim()) {
+    throw new ApiError(400, "partyId is required");
+  }
   const data = await reportsService.getSubLedger({
     ...scope(req),
-    partyId,
+    partyId: partyId.trim(),
     partyType: partyType || "customer",
   });
   res.json(new ApiResponse(200, data));

@@ -6,10 +6,12 @@ import PurchaseInvoice from "../purchase/purchaseInvoice/purchaseInvoice.model.j
 import Customer from "../masters/customer/customer.model.js";
 import BankAccount from "../masters/bank/bank.model.js";
 import {
+  getUnappliedManualPurchaseReturnCredit,
   persistUnlinkedManualReturnsForVendor,
   persistUnlinkedManualReturnsForInvoice,
 } from "../purchase/purchaseReturn/purchaseReturnCredits.js";
 import {
+  getUnappliedManualSalesReturnCredit,
   persistUnlinkedManualReturnsForCustomer,
   persistUnlinkedManualReturnsForInvoice as persistUnlinkedManualSalesReturnsForInvoice,
 } from "../sales/salesReturn/salesReturnCredits.js";
@@ -206,6 +208,40 @@ export const getOutstandingInvoices = async ({
   );
 
   const outstanding = mapped.filter((inv) => inv.balanceAmount > 0.009);
+
+  if (invoiceType === "sales") {
+    const unappliedManualCredit = await getUnappliedManualSalesReturnCredit(
+      companyId,
+      financialYearId,
+      partyOid
+    );
+    if (unappliedManualCredit > 0.009) {
+      summary.totalReturns = Number(
+        (summary.totalReturns + unappliedManualCredit).toFixed(2)
+      );
+      summary.totalOutstanding = Math.max(
+        0,
+        Number((summary.totalOutstanding - unappliedManualCredit).toFixed(2))
+      );
+    }
+  }
+
+  if (invoiceType === "purchase") {
+    const unappliedManualCredit = await getUnappliedManualPurchaseReturnCredit(
+      companyId,
+      financialYearId,
+      partyOid
+    );
+    if (unappliedManualCredit > 0.009) {
+      summary.totalReturns = Number(
+        (summary.totalReturns + unappliedManualCredit).toFixed(2)
+      );
+      summary.totalOutstanding = Math.max(
+        0,
+        Number((summary.totalOutstanding - unappliedManualCredit).toFixed(2))
+      );
+    }
+  }
 
   return { invoices: outstanding, summary };
 };

@@ -37,16 +37,18 @@ const getCompanyCode = async (companyId) => {
   return companyCode;
 };
 
-/** Next sequence from a PKS/RCPT/2026-27/0001 style number */
-const nextSlashSequence = async (Model, field, filter, prefix, pad = 4) => {
+/** Next sequence: PKS/RCPT/2026-27/01 (min 2 digits; grows to 10, 100, …) */
+const nextSlashSequence = async (Model, field, filter, prefix, minPad = 2) => {
   const last = await Model.findOne(
     { ...filter, [field]: { $regex: `^${prefix.replace(/\//g, "\\/")}` } },
     { [field]: 1 },
     { sort: { createdAt: -1 } }
   );
 
-  const lastNo = last ? parseInt(String(last[field]).split("/").pop(), 10) || 0 : 0;
-  return `${prefix}${String(lastNo + 1).padStart(pad, "0")}`;
+  if (!last) return `${prefix}${String(1).padStart(minPad, "0")}`;
+
+  const lastNo = parseInt(String(last[field]).split("/").pop(), 10) || 0;
+  return `${prefix}${String(lastNo + 1).padStart(minPad, "0")}`;
 };
 
 /** Sales: PKS/WH/2026-27/01 or PKS/RT/2026-27/01 */
@@ -187,7 +189,7 @@ export const getNextPurchaseReturnNo = async (companyId, financialYearId) => {
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Receipt / Payment: PKS/RCPT/2026-27/0001 or PKS/PAY/2026-27/0001 */
+/** Receipt / Payment: PKS/RCPT/2026-27/01 or PKS/PAY/2026-27/01 */
 export const getNextVoucherNo = async (companyId, financialYearId, voucherType) => {
   const [fy, companyCode] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -205,7 +207,7 @@ export const getNextVoucherNo = async (companyId, financialYearId, voucherType) 
   );
 };
 
-/** Expense: PKS/EXP/2026-27/0001 */
+/** Expense: PKS/EXP/2026-27/01 */
 export const getNextExpenseNo = async (companyId, financialYearId) => {
   const [fy, companyCode] = await Promise.all([
     FinancialYear.findById(financialYearId),

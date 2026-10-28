@@ -17,6 +17,9 @@ const fmtDate = (d) => {
   return date.toISOString().slice(0, 10);
 };
 
+const lineTotalTax = (row) =>
+  Number(((Number(row.sgst) || 0) + (Number(row.cgst) || 0)).toFixed(2));
+
 /** Outstanding on an invoice — derived, since stored balanceAmount is 0 on
  *  invoices created before payment tracking existed. */
 const invoiceBalance = (r) => {
@@ -108,9 +111,9 @@ export const EXPORT_REPORTS = {
     filename: "purchase-invoices",
     sheetName: "Purchase",
     columns: [
-      { key: "invoiceNo", header: "Invoice No", default: true, width: 24, get: (r) => r.invoiceNo || "" },
-      { key: "vendorInvoiceNo", header: "Vendor Invoice No", default: true, width: 24, get: (r) => r.vendorInvoiceNo || "" },
+      { key: "invoiceNo", header: "Invoice Number", default: true, width: 24, get: (r) => r.invoiceNo || "" },
       { key: "purchaseDate", header: "Date", default: true, get: (r) => fmtDate(r.purchaseDate) },
+      { key: "vendorInvoiceNo", header: "Vendor Invoice Number", default: true, width: 24, get: (r) => r.vendorInvoiceNo || "" },
       {
         key: "vendor",
         header: "Vendor",
@@ -127,8 +130,8 @@ export const EXPORT_REPORTS = {
         get: (r) =>
           (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
       },
-      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.totalCGST ?? 0 },
@@ -140,7 +143,7 @@ export const EXPORT_REPORTS = {
         default: false,
         get: (r) => computePaymentStatus(r),
       },
-      { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
+      { key: "status", header: "Status", default: false, get: (r) => r.status || "" },
     ],
   },
   "sales-returns": {
@@ -176,22 +179,13 @@ export const EXPORT_REPORTS = {
     filename: "purchase-returns",
     sheetName: "Purchase Returns",
     columns: [
-      { key: "returnNo", header: "Return No", default: true, width: 24, get: (r) => r.returnNo || "" },
+      { key: "returnNo", header: "Return Invoice Number", default: true, width: 24, get: (r) => r.returnNo || "" },
       { key: "returnDate", header: "Date", default: true, get: (r) => fmtDate(r.returnDate) },
       {
         key: "originalInvoice",
-        header: "Original Invoice",
+        header: "Original Invoice Number",
         default: true,
         get: (r) => r.originalInvoiceNo || "",
-      },
-      {
-        key: "vendor",
-        header: "Vendor",
-        default: true,
-        get: (r) =>
-          r.vendorSnapshot?.name ||
-          (r.vendorId && typeof r.vendorId === "object" ? r.vendorId.name : "") ||
-          "",
       },
       {
         key: "warehouse",
@@ -200,13 +194,13 @@ export const EXPORT_REPORTS = {
         get: (r) =>
           (r.warehouseId && typeof r.warehouseId === "object" ? r.warehouseId.name : "") || "",
       },
-      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "totalQty", header: "Total Qty", default: true, get: (r) => r.totalQty ?? 0 },
+      { key: "discount", header: "Discount", default: true, get: (r) => r.discountAmount ?? 0 },
       { key: "netAmount", header: "Net Amount", default: true, get: (r) => r.netAmount ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.totalSGST ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.totalCGST ?? 0 },
       { key: "grandTotal", header: "Grand Total", default: true, get: (r) => r.grandTotal ?? 0 },
-      { key: "status", header: "Status", default: true, get: (r) => r.status || "" },
+      { key: "status", header: "Status", default: false, get: (r) => r.status || "" },
     ],
   },
   receipts: {
@@ -524,6 +518,7 @@ export const EXPORT_REPORTS = {
       { key: "taxableValue", header: "Taxable Value", default: true, get: (r) => r.taxableValue ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.sgst ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.cgst ?? 0 },
+      { key: "totalTax", header: "Total Tax", default: true, get: lineTotalTax },
       { key: "total", header: "Total", default: true, get: (r) => r.total ?? 0 },
     ],
   },
@@ -549,6 +544,7 @@ export const EXPORT_REPORTS = {
       { key: "taxableValue", header: "Taxable Value", default: true, get: (r) => r.taxableValue ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.sgst ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.cgst ?? 0 },
+      { key: "totalTax", header: "Total Tax", default: true, get: lineTotalTax },
       { key: "total", header: "Total", default: true, get: (r) => r.total ?? 0 },
     ],
   },
@@ -580,6 +576,7 @@ export const EXPORT_REPORTS = {
       { key: "taxableValue", header: "Taxable Value", default: true, get: (r) => r.taxableValue ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.sgst ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.cgst ?? 0 },
+      { key: "totalTax", header: "Total Tax", default: true, get: lineTotalTax },
       { key: "total", header: "Total", default: true, get: (r) => r.total ?? 0 },
     ],
   },
@@ -605,6 +602,7 @@ export const EXPORT_REPORTS = {
       { key: "taxableValue", header: "Taxable Value", default: true, get: (r) => r.taxableValue ?? 0 },
       { key: "sgst", header: "SGST", default: true, get: (r) => r.sgst ?? 0 },
       { key: "cgst", header: "CGST", default: true, get: (r) => r.cgst ?? 0 },
+      { key: "totalTax", header: "Total Tax", default: true, get: lineTotalTax },
       { key: "total", header: "Total", default: true, get: (r) => r.total ?? 0 },
     ],
   },
