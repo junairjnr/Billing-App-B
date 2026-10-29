@@ -7,10 +7,10 @@ const router = express.Router();
 
 router.use(protect);
 
-router.get("/users", userManagementGuard("view"), ctrl.listUsers);
-router.get("/users/:id", userManagementGuard("view"), ctrl.getUser);
-router.post("/users", userManagementGuard("add"), ctrl.createUser);
-router.put("/users/:id", userManagementGuard("edit"), ctrl.updateUser);
-router.delete("/users/:id", userManagementGuard("delete"), ctrl.deactivateUser);
+router.get("/", userManagementGuard("view"), ctrl.listUsers);
+router.get("/:id", userManagementGuard("view"), ctrl.getUser);
+router.post("/", userManagementGuard("add"), ctrl.createUser);
+router.put("/:id", userManagementGuard("edit"), ctrl.updateUser);
+router.delete("/:id", userManagementGuard("delete"), ctrl.deactivateUser);
 
 export default router;
