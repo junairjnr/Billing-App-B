@@ -8,6 +8,8 @@ import {
   isSystemRole,
 } from "../settings/permissions.constants.js";
 import { requireString } from "../../utils/sanitizeInput.js";
+import { deleteProfileUploadFile } from "../upload/upload.utils.js";
+import path from "path";
 
 const USER_SELECT = "-password -inviteToken -inviteTokenExpiry";
 
@@ -148,6 +150,78 @@ const updateUser = async (companyId, userId, payload, actor) => {
   return user;
 };
 
+const getMe = async (companyId, userId) => {
+  return getUserById(companyId, userId);
+};
+
+const updateMe = async (companyId, userId, payload) => {
+  const user = await userModel.findOne({ _id: userId, companyId });
+  if (!user) throw new ApiError(404, "User not found");
+
+  const { name, profileImage } = payload;
+
+  if (name !== undefined) {
+    user.name = requireString(name, "name", { maxLength: 120 });
+  }
+
+  if (profileImage !== undefined) {
+    const nextImage =
+      profileImage === null || profileImage === ""
+        ? null
+        : path.basename(String(profileImage));
+    if (user.profileImage && user.profileImage !== nextImage) {
+      deleteProfileUploadFile(companyId, user.profileImage);
+    }
+    user.profileImage = nextImage;
+  }
+
+  await user.save();
+  return getUserById(companyId, userId);
+};
+
+const changePassword = async (
+  companyId,
+  userId,
+  currentPassword,
+  newPassword,
+) => {
+  const user = await userModel
+    .findOne({ _id: userId, companyId })
+    .select("+password");
+  if (!user) throw new ApiError(404, "User not found");
+
+  if (
+    typeof currentPassword !== "string" ||
+    !currentPassword ||
+    !(await user.comparePassword(currentPassword))
+  ) {
+    throw new ApiError(400, "Current password is incorrect");
+  }
+
+  if (typeof newPassword !== "string" || newPassword.length < 6) {
+    throw new ApiError(400, "New password must be at least 6 characters");
+  }
+
+  user.password = newPassword;
+  await user.save();
+};
+
+const uploadMyProfileImage = async (companyId, userId, fileName) => {
+  const safeName = path.basename(String(fileName || ""));
+  if (!safeName) throw new ApiError(400, "Invalid profile image");
+
+  const user = await userModel.findOne({ _id: userId, companyId });
+  if (!user) throw new ApiError(404, "User not found");
+
+  if (user.profileImage && user.profileImage !== safeName) {
+    deleteProfileUploadFile(companyId, user.profileImage);
+  }
+
+  user.profileImage = safeName;
+  await user.save();
+  return getUserById(companyId, userId);
+};
+
 const deactivateUser = async (companyId, userId, actor) => {
   const user = await userModel.findOne({ _id: userId, companyId });
   if (!user) throw new ApiError(404, "User not found");
@@ -168,6 +242,10 @@ export default {
   createUser,
   getCompanyUsers,
   getUserById,
+  getMe,
+  updateMe,
+  changePassword,
+  uploadMyProfileImage,
   updateUser,
   deactivateUser,
 };

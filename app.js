@@ -93,6 +93,7 @@ import accountingRoutes from "./modules/accounting/accounting.routes.js";
 import exportRoutes from "./modules/export/export.routes.js";
 import documentNumberRoutes from "./modules/documentNumber/documentNumber.routes.js";
 import uploadRoutes from "./modules/upload/upload.routes.js";
+import notificationRoutes from "./modules/notification/notification.routes.js";
 import * as rpCtrl from "./modules/receipt-payment/receiptPayment.controller.js";
 import protect from "./middlewares/authHandler.js";
 import fyScope from "./middlewares/fyScope.js";
@@ -163,6 +164,7 @@ app.use("/api/accounting", accountingRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/document-numbers", documentNumberRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });

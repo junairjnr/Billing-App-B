@@ -41,6 +41,7 @@ const userSchema = new mongoose.Schema(
     inviteToken: { type: String, select: false },
     inviteTokenExpiry: { type: Date, select: false },
     isVerified: { type: Boolean, default: false },
+    profileImage: { type: String, default: null, trim: true },
 
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },

@@ -17,6 +17,37 @@ export function getPurchaseUploadDir(companyId) {
   return path.join(process.cwd(), "uploads", String(companyId), "purchase");
 }
 
+export function getProfileUploadDir(companyId) {
+  return path.join(process.cwd(), "uploads", String(companyId), "profile");
+}
+
+export function ensureProfileUploadDir(companyId) {
+  const dir = getProfileUploadDir(companyId);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function resolveProfileUploadFile(companyId, fileName) {
+  const safeName = path.basename(String(fileName || ""));
+  if (!safeName) return null;
+
+  const dir = path.resolve(getProfileUploadDir(companyId));
+  const fullPath = path.resolve(dir, safeName);
+
+  if (!fullPath.startsWith(`${dir}${path.sep}`) && fullPath !== dir) {
+    return null;
+  }
+
+  return fullPath;
+}
+
+export function deleteProfileUploadFile(companyId, fileName) {
+  const filePath = resolveProfileUploadFile(companyId, fileName);
+  if (!filePath || !fs.existsSync(filePath)) return false;
+  fs.unlinkSync(filePath);
+  return true;
+}
+
 export function ensureUploadDir(companyId) {
   const dir = getPurchaseUploadDir(companyId);
   fs.mkdirSync(dir, { recursive: true });

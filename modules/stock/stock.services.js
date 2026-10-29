@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Stock from "./stock.model.js";
 import StockLedger from "./stockLedger.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { queueNotificationSync } from "../../socket/notificationSyncQueue.js";
 
 /*
   moveStock — called by:
@@ -129,6 +130,8 @@ export const moveStock = async (
   } else {
     await StockLedger.create(ledgerData);
   }
+
+  queueNotificationSync(companyId, financialYearId);
 
   return stock;
 };

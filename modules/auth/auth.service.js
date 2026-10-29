@@ -178,6 +178,7 @@ const login = async ({ email, password }) => {
       branchId: user.branchId._id,
       activeFY: activeFY?._id,
       permissions,
+      profileImage: user.profileImage || null,
     },
   };
 };

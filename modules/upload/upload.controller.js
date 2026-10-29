@@ -9,6 +9,7 @@ import {
   assertFileMagicMatchesMime,
   deletePurchaseUploadFile,
   resolvePurchaseUploadFile,
+  resolveProfileUploadFile,
   sanitizeDownloadFileName,
 } from "./upload.utils.js";
 
@@ -79,4 +80,22 @@ export const deletePurchaseFile = asyncHandler(async (req, res) => {
 
   deletePurchaseUploadFile(req.companyId, fileName);
   res.json(new ApiResponse(200, { fileName }, "File removed"));
+});
+
+export const downloadProfileFile = asyncHandler(async (req, res) => {
+  const filePath = resolveProfileUploadFile(req.companyId, req.params.fileName);
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new ApiError(404, "File not found");
+  }
+
+  const downloadName = sanitizeDownloadFileName(
+    req.query.name,
+    req.params.fileName,
+  );
+
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="${downloadName}"`,
+  );
+  res.sendFile(filePath);
 });
