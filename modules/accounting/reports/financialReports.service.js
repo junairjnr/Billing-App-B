@@ -4,6 +4,13 @@ import ChartOfAccount from "../chartOfAccount/chartOfAccount.model.js";
 import Customer from "../../masters/customer/customer.model.js";
 import ApiError from "../../../utils/ApiError.js";
 import { normalizeObjectIdString } from "../../../utils/sanitizeInput.js";
+import {
+  applyPartyLineBalance,
+  normalizePartyType,
+  partyIdFromLine,
+  partyLineMatches,
+  partySubLedgerAccountCode,
+} from "./partyLedger.utils.js";
 
 const round2 = (n) => Number(Number(n).toFixed(2));
 
@@ -248,14 +255,21 @@ export const getSubLedger = async ({
   dateFrom,
   dateTo,
 }) => {
+  const normalizedType = normalizePartyType(partyType);
   const partyKey = normalizePartyId(partyId);
-  const partyField = partyType === "customer" ? "lines.customerId" : "lines.vendorId";
   const partyOid = new mongoose.Types.ObjectId(partyKey);
+  const partyIdField = normalizedType === "customer" ? "customerId" : "vendorId";
+  const accountCode = partySubLedgerAccountCode(normalizedType);
 
   const filter = mergeScopeFilters(
     buildScopeFilter({ companyId, branchId, financialYearId, dateFrom, dateTo }),
     {
-      $or: [{ [partyField]: partyKey }, { [partyField]: partyOid }],
+      lines: {
+        $elemMatch: {
+          accountCode,
+          $or: [{ [partyIdField]: partyKey }, { [partyIdField]: partyOid }],
+        },
+      },
     }
   );
 
@@ -268,21 +282,11 @@ export const getSubLedger = async ({
 
   for (const entry of entries) {
     for (const line of entry.lines) {
-      const linePartyId = normalizeObjectIdString(
-        partyType === "customer" ? line.customerId : line.vendorId
-      );
-      const matches = linePartyId === partyKey;
-
-      if (!matches) continue;
+      if (!partyLineMatches(line, normalizedType, partyKey)) continue;
 
       const debit = line.debit || 0;
       const credit = line.credit || 0;
-
-      if (partyType === "customer") {
-        runningBalance = round2(runningBalance + debit - credit);
-      } else {
-        runningBalance = round2(runningBalance + credit - debit);
-      }
+      runningBalance = applyPartyLineBalance(runningBalance, line, normalizedType);
 
       transactions.push({
         date: entry.entryDate,
@@ -359,34 +363,40 @@ export const getGeneralLedger = async ({
 
 /** All customer or vendor balances aggregated from journal sub-ledger lines */
 export const getAllPartyBalances = async (scope, partyType) => {
-  const filter = buildScopeFilter(scope);
-  const partyField = partyType === "customer" ? "lines.customerId" : "lines.vendorId";
+  const normalizedType = normalizePartyType(partyType);
+  const accountCode = partySubLedgerAccountCode(normalizedType);
+  const partyIdField = normalizedType === "customer" ? "customerId" : "vendorId";
 
-  filter[partyField] = { $exists: true, $ne: null };
+  const filter = mergeScopeFilters(buildScopeFilter(scope), {
+    lines: {
+      $elemMatch: {
+        accountCode,
+        [partyIdField]: { $exists: true, $ne: null },
+      },
+    },
+  });
 
   const entries = await JournalEntry.find(filter).lean();
   const balanceMap = {};
 
   for (const entry of entries) {
     for (const line of entry.lines) {
-      const partyId = partyType === "customer" ? line.customerId : line.vendorId;
-      if (!partyId) continue;
+      const partyKey = partyIdFromLine(line, normalizedType);
+      if (!partyKey || line.accountCode !== accountCode) continue;
 
-      const key = String(partyId);
-      if (!balanceMap[key]) balanceMap[key] = 0;
-
-      if (partyType === "customer") {
-        balanceMap[key] = round2(balanceMap[key] + (line.debit || 0) - (line.credit || 0));
-      } else {
-        balanceMap[key] = round2(balanceMap[key] + (line.credit || 0) - (line.debit || 0));
-      }
+      if (!balanceMap[partyKey]) balanceMap[partyKey] = 0;
+      balanceMap[partyKey] = applyPartyLineBalance(
+        balanceMap[partyKey],
+        line,
+        normalizedType
+      );
     }
   }
 
   const partyIds = Object.keys(balanceMap);
   if (!partyIds.length) return [];
 
-  const typeFilter = partyType === "customer" ? "sales" : "purchase";
+  const typeFilter = normalizedType === "customer" ? "sales" : "purchase";
   const partyObjectIds = partyIds
     .filter((id) => mongoose.Types.ObjectId.isValid(id))
     .map((id) => new mongoose.Types.ObjectId(id));
@@ -412,6 +422,6 @@ export const getAllPartyBalances = async (scope, partyType) => {
       phone: partyMap[id]?.phone || "",
       balance: balanceMap[id],
     }))
-    .filter((row) => row.balance !== 0)
+    .filter((row) => Math.abs(row.balance) >= 0.005)
     .sort((a, b) => b.balance - a.balance);
 };

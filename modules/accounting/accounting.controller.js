@@ -95,10 +95,14 @@ export const subLedger = asyncHandler(async (req, res) => {
   if (!partyId || typeof partyId !== "string" || !partyId.trim()) {
     throw new ApiError(400, "partyId is required");
   }
+  const normalizedType =
+    typeof partyType === "string" && partyType.toLowerCase() === "vendor"
+      ? "vendor"
+      : "customer";
   const data = await reportsService.getSubLedger({
     ...scope(req),
     partyId: partyId.trim(),
-    partyType: partyType || "customer",
+    partyType: normalizedType,
   });
   res.json(new ApiResponse(200, data));
 });
