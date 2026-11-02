@@ -6,6 +6,7 @@ import asyncHandler from "../../../utils/asyncHandler.js";
 import ApiResponse from "../../../utils/ApiResponse.js";
 import ApiError from "../../../utils/ApiError.js";
 import { optionalSearchString } from "../../../utils/sanitizeInput.js";
+import { clampLookupSize } from "../../../utils/paginationLimits.js";
 import { regexContains } from "../../../utils/escapeRegex.js";
 import { assertUniqueItemName, normalizeItemRates } from "./item.service.js";
 import { assertItemNotInUse } from "../masterUsage.service.js";
@@ -96,10 +97,14 @@ router.get(
       filter.$or = [{ name: pattern }, { code: pattern }];
     }
 
-    const data = await itemModel.find(filter)
-      .select("name code hsnCode price taxPercent uomId")
+    const lookupLimit = clampLookupSize(req.query.limit);
+
+    const data = await itemModel
+      .find(filter)
+      .select("name code hsnCode price taxPercent uomId categoryId description")
       .populate("uomId", "name shortCode")
-      .limit(10)
+      .sort({ name: 1 })
+      .limit(lookupLimit)
       .lean();
 
     res.json(new ApiResponse(200, data));

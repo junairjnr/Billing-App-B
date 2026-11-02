@@ -138,6 +138,9 @@ export const purchaseHistory = asyncHandler(async (req, res) => {
     totalTax: Number(
       allRows.reduce((s, r) => s + r.sgst + r.cgst + (r.igst ?? 0), 0).toFixed(2)
     ),
+    totalDiscount: Number(
+      allRows.reduce((s, r) => s + r.discountAmt, 0).toFixed(2)
+    ),
     avgRate: allRows.length
       ? Number(
           (allRows.reduce((s, r) => s + r.rate, 0) / allRows.length).toFixed(2)
