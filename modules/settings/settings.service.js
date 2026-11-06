@@ -1,4 +1,5 @@
 import RolePermission from "./rolePermission.model.js";
+import CustomRole from "./customRole.model.js";
 import Company from "../company/company.model.js";
 import ApiError from "../../utils/ApiError.js";
 import { getCustomRolePermissions } from "./customRole.service.js";
@@ -11,6 +12,7 @@ import {
   ROLE_META,
   SUPER_ADMIN_SETTINGS,
   VIEW_PERMISSIONS,
+  actionKey,
   isSystemRole,
 } from "./permissions.constants.js";
 import { normalizePermissions, mapToObject } from "./permissionUtils.js";
@@ -85,7 +87,13 @@ export const getPermissionCatalog = () => ({
 });
 
 export const getAllRolePermissions = async (companyId) => {
+  await ensureRolePermissions(companyId);
+
   const docs = await RolePermission.find({ companyId }).lean();
+  const customRoles = await CustomRole.find({ companyId, isActive: true })
+    .sort({ name: 1 })
+    .lean();
+
   const byRole = Object.fromEntries(
     MANAGED_ROLES.map((role) => {
       const doc = docs.find((d) => d.role === role);
@@ -94,27 +102,70 @@ export const getAllRolePermissions = async (companyId) => {
     })
   );
 
+  const customRoleMeta = {};
+  for (const customRole of customRoles) {
+    const fallback =
+      customRole.basedOn && DEFAULT_ROLE_PERMISSIONS[customRole.basedOn]
+        ? DEFAULT_ROLE_PERMISSIONS[customRole.basedOn]
+        : DEFAULT_ROLE_PERMISSIONS.viewer;
+    byRole[customRole.slug] = normalizePermissions(
+      mapToObject(customRole.permissions),
+      fallback
+    );
+    customRoleMeta[customRole.slug] = {
+      label: customRole.name,
+      description: customRole.description || "Custom role",
+    };
+  }
+
+  const catalog = getPermissionCatalog();
+
   return {
-    ...getPermissionCatalog(),
+    ...catalog,
+    roles: [...MANAGED_ROLES, ...customRoles.map((r) => r.slug)],
+    roleMeta: { ...catalog.roleMeta, ...customRoleMeta },
     permissionsByRole: byRole,
   };
 };
 
 export const updateRolePermissions = async (companyId, role, views) => {
-  if (!MANAGED_ROLES.includes(role)) {
+  if (MANAGED_ROLES.includes(role)) {
+    const normalized = normalizePermissions(
+      views,
+      DEFAULT_ROLE_PERMISSIONS[role] || {}
+    );
+    const doc = await RolePermission.findOneAndUpdate(
+      { companyId, role },
+      { views: normalized },
+      { new: true, upsert: true, runValidators: true }
+    ).lean();
+
+    return {
+      role,
+      views: normalizePermissions(mapToObject(doc.views)),
+    };
+  }
+
+  const customRole = await CustomRole.findOne({
+    companyId,
+    slug: role,
+    isActive: true,
+  });
+  if (!customRole) {
     throw new ApiError(400, "Invalid role");
   }
 
-  const normalized = normalizePermissions(views, DEFAULT_ROLE_PERMISSIONS[role] || {});
-  const doc = await RolePermission.findOneAndUpdate(
-    { companyId, role },
-    { views: normalized },
-    { new: true, upsert: true, runValidators: true }
-  ).lean();
+  const fallback =
+    customRole.basedOn && DEFAULT_ROLE_PERMISSIONS[customRole.basedOn]
+      ? DEFAULT_ROLE_PERMISSIONS[customRole.basedOn]
+      : mapToObject(customRole.permissions);
+  const normalized = normalizePermissions(views, fallback);
+  customRole.permissions = normalized;
+  await customRole.save();
 
   return {
     role,
-    views: normalizePermissions(mapToObject(doc.views)),
+    views: normalizePermissions(mapToObject(customRole.permissions)),
   };
 };
 
