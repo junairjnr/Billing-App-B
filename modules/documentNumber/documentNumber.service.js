@@ -8,7 +8,12 @@ import JournalEntry from "../accounting/journal/journalEntry.model.js";
 import FinancialYear from "../financialYear/financialYear.model.js";
 import Company from "../company/company.model.js";
 import ApiError from "../../utils/ApiError.js";
-import { getFYDocumentCode, getDocumentSequence } from "../../utils/fyCode.js";
+import {
+  getFYDocumentCode,
+  getFYShortLabel,
+  getDocumentSequence,
+} from "../../utils/fyCode.js";
+import { escapeRegex } from "../../utils/escapeRegex.js";
 
 export const DOCUMENT_TYPES = {
   SALES_INVOICE: "sales_invoice",
@@ -51,7 +56,7 @@ const nextSlashSequence = async (Model, field, filter, prefix, minPad = 2) => {
   return `${prefix}${String(lastNo + 1).padStart(minPad, "0")}`;
 };
 
-/** Sales: PKS/WH/2026-27/01 or PKS/RT/2026-27/01 */
+/** Sales: PKS/WH/26-27/01 or PKS/RT/26-27/01 (FY uses last two digits per year) */
 export const getNextSalesInvoiceNo = async (companyId, financialYearId, salesType) => {
   const [fy, company] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -69,14 +74,20 @@ export const getNextSalesInvoiceNo = async (companyId, financialYearId, salesTyp
   }
 
   const typeCode = salesType === "retail" ? "RT" : "WH";
-  const prefix = `${companyCode}/${typeCode}/${fy.label}/`;
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
+
+  const invoiceNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
+  );
 
   const last = await SalesInvoice.findOne(
     {
       companyId,
       financialYearId,
       salesType,
-      invoiceNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
+      invoiceNo: { $regex: invoiceNoPattern },
     },
     { invoiceNo: 1 },
     { sort: { createdAt: -1 } }
@@ -88,7 +99,7 @@ export const getNextSalesInvoiceNo = async (companyId, financialYearId, salesTyp
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Purchase: PKS/PI/2026-27/01 */
+/** Purchase: PKS/PI/26-27/01 (FY uses last two digits per year) */
 export const getNextPurchaseInvoiceNo = async (companyId, financialYearId) => {
   const [fy, company] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -105,13 +116,20 @@ export const getNextPurchaseInvoiceNo = async (companyId, financialYearId) => {
     );
   }
 
-  const prefix = `${companyCode}/PI/${fy.label}/`;
+  const typeCode = "PI";
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
+
+  const docNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
+  );
 
   const last = await PurchaseInvoice.findOne(
     {
       companyId,
       financialYearId,
-      invoiceNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
+      invoiceNo: { $regex: docNoPattern },
     },
     { invoiceNo: 1 },
     { sort: { createdAt: -1 } }
@@ -123,7 +141,7 @@ export const getNextPurchaseInvoiceNo = async (companyId, financialYearId) => {
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Sales return: PKS/SR-WH/2026-27/01 */
+/** Sales return: PKS/SR-WH/26-27/01 or PKS/SR-RT/26-27/01 */
 export const getNextSalesReturnNo = async (companyId, financialYearId, salesType) => {
   const [fy, company] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -138,14 +156,20 @@ export const getNextSalesReturnNo = async (companyId, financialYearId, salesType
   }
 
   const typeCode = salesType === "retail" ? "SR-RT" : "SR-WH";
-  const prefix = `${companyCode}/${typeCode}/${fy.label}/`;
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
+
+  const docNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
+  );
 
   const last = await SalesReturn.findOne(
     {
       companyId,
       financialYearId,
       salesType,
-      returnNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
+      returnNo: { $regex: docNoPattern },
     },
     { returnNo: 1 },
     { sort: { createdAt: -1 } }
@@ -157,7 +181,7 @@ export const getNextSalesReturnNo = async (companyId, financialYearId, salesType
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Purchase return: PKS/PR/2026-27/01 */
+/** Purchase return: PKS/PR/26-27/01 */
 export const getNextPurchaseReturnNo = async (companyId, financialYearId) => {
   const [fy, company] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -171,13 +195,20 @@ export const getNextPurchaseReturnNo = async (companyId, financialYearId) => {
     throw new ApiError(400, "Company code not set. Set company code before creating returns.");
   }
 
-  const prefix = `${companyCode}/PR/${fy.label}/`;
+  const typeCode = "PR";
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
+
+  const docNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
+  );
 
   const last = await PurchaseReturn.findOne(
     {
       companyId,
       financialYearId,
-      returnNo: { $regex: `^${prefix.replace(/\//g, "\\/")}` },
+      returnNo: { $regex: docNoPattern },
     },
     { returnNo: 1 },
     { sort: { createdAt: -1 } }

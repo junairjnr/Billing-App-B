@@ -296,7 +296,7 @@ const salesInvoiceSchema = new mongoose.Schema(
       required: true,
     },
 
-    // PKS/WH/2026-27/01 → wholesale, PKS/RT/2026-27/01 → retail
+    // PKS/WH/26-27/01 → wholesale, PKS/RT/26-27/01 → retail
     invoiceNo: { type: String, required: true },
     invoiceDate: { type: Date, required: true },
     salesType: { type: String, enum: ["retail", "wholesale"], required: true },
