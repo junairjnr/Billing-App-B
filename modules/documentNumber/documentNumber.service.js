@@ -9,7 +9,6 @@ import FinancialYear from "../financialYear/financialYear.model.js";
 import Company from "../company/company.model.js";
 import ApiError from "../../utils/ApiError.js";
 import {
-  getFYDocumentCode,
   getFYShortLabel,
   getDocumentSequence,
 } from "../../utils/fyCode.js";
@@ -40,20 +39,6 @@ const getCompanyCode = async (companyId) => {
     );
   }
   return companyCode;
-};
-
-/** Next sequence: PKS/RCPT/2026-27/01 (min 2 digits; grows to 10, 100, …) */
-const nextSlashSequence = async (Model, field, filter, prefix, minPad = 2) => {
-  const last = await Model.findOne(
-    { ...filter, [field]: { $regex: `^${prefix.replace(/\//g, "\\/")}` } },
-    { [field]: 1 },
-    { sort: { createdAt: -1 } }
-  );
-
-  if (!last) return `${prefix}${String(1).padStart(minPad, "0")}`;
-
-  const lastNo = parseInt(String(last[field]).split("/").pop(), 10) || 0;
-  return `${prefix}${String(lastNo + 1).padStart(minPad, "0")}`;
 };
 
 /** Sales: PKS/WH/26-27/01 or PKS/RT/26-27/01 (FY uses last two digits per year) */
@@ -220,7 +205,7 @@ export const getNextPurchaseReturnNo = async (companyId, financialYearId) => {
   return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Receipt / Payment: PKS/RCPT/2026-27/01 or PKS/PAY/2026-27/01 */
+/** Receipt / Payment: PKS/RCPT/26-27/01 or PKS/PAY/26-27/01 */
 export const getNextVoucherNo = async (companyId, financialYearId, voucherType) => {
   const [fy, companyCode] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -228,17 +213,33 @@ export const getNextVoucherNo = async (companyId, financialYearId, voucherType) 
   ]);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const prefix = `${companyCode}/${voucherPrefix(voucherType)}/${fy.label}/`;
+  const typeCode = voucherPrefix(voucherType);
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
 
-  return nextSlashSequence(
-    ReceiptPayment,
-    "voucherNo",
-    { companyId, financialYearId, voucherType },
-    prefix
+  const docNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
   );
+
+  const last = await ReceiptPayment.findOne(
+    {
+      companyId,
+      financialYearId,
+      voucherType,
+      voucherNo: { $regex: docNoPattern },
+    },
+    { voucherNo: 1 },
+    { sort: { createdAt: -1 } }
+  );
+
+  if (!last) return `${prefix}01`;
+
+  const lastNo = parseInt(last.voucherNo.split("/").pop(), 10) || 0;
+  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Expense: PKS/EXP/2026-27/01 */
+/** Expense: PKS/EXP/26-27/01 */
 export const getNextExpenseNo = async (companyId, financialYearId) => {
   const [fy, companyCode] = await Promise.all([
     FinancialYear.findById(financialYearId),
@@ -246,22 +247,37 @@ export const getNextExpenseNo = async (companyId, financialYearId) => {
   ]);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const prefix = `${companyCode}/EXP/${fy.label}/`;
+  const typeCode = "EXP";
+  const fySegment = getFYShortLabel(fy.label);
+  const prefix = `${companyCode}/${typeCode}/${fySegment}/`;
 
-  return nextSlashSequence(
-    Expense,
-    "expenseNo",
-    { companyId, financialYearId },
-    prefix
+  const docNoPattern = new RegExp(
+    `^${escapeRegex(companyCode)}/${escapeRegex(typeCode)}/[^/]+/`,
+    "i"
   );
+
+  const last = await Expense.findOne(
+    {
+      companyId,
+      financialYearId,
+      expenseNo: { $regex: docNoPattern },
+    },
+    { expenseNo: 1 },
+    { sort: { createdAt: -1 } }
+  );
+
+  if (!last) return `${prefix}01`;
+
+  const lastNo = parseInt(last.expenseNo.split("/").pop(), 10) || 0;
+  return `${prefix}${String(lastNo + 1).padStart(2, "0")}`;
 };
 
-/** Journal: JE-2026-2027-0001 */
+/** Journal: JE-26-27-0001 */
 export const getNextJournalNo = async (companyId, financialYearId, session = null) => {
   const fy = await FinancialYear.findById(financialYearId).session(session);
   if (!fy) throw new ApiError(404, "Financial year not found");
 
-  const prefix = `JE-${getFYDocumentCode(fy.label)}`;
+  const prefix = `JE-${getFYShortLabel(fy.label)}`;
   const last = await JournalEntry.findOne(
     { companyId, financialYearId },
     { journalNo: 1 },

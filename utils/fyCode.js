@@ -1,6 +1,6 @@
 /**
- * FY label for document numbers — same as stored label, e.g. "2026-27".
- * Used in PINV / RCPT / PAY / EXP / JE number prefixes.
+ * Full FY label as stored on FinancialYear, e.g. "2026-27".
+ * Prefer getFYShortLabel for new document numbers.
  */
 export const getFYDocumentCode = (label) => String(label ?? "").trim();
 
