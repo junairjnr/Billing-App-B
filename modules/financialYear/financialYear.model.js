@@ -7,7 +7,7 @@ const financialYearSchema = new mongoose.Schema(
       ref: "Company",
       required: true,
     },
-    label: { type: String, required: true }, // "2025-26"
+    label: { type: String, required: true }, // "25-26"
     startDate: { type: Date, required: true }, // 2025-04-01
     endDate: { type: Date, required: true }, // 2026-03-31
     isActive: { type: Boolean, default: true }, // currently selected
